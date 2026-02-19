@@ -1,18 +1,16 @@
-.DEFAULT_GOAL := help
+# Makefile
 
-STACK_FILES := $(wildcard stacks/*/stack.mk)
-include $(STACK_FILES)
+# Update to include stack mk files
+include stacks/basic/stack.mk
+include stacks/template/stack.mk
 
-.PHONY: help list
+# Ensure help shows stack targets
+help: 
+	@echo "Stack Targets:"
+	@echo "	f_stack:  Run stack tests"
 
-help: ## Show this help message
-	@echo ""
-	@echo "red-team lab framework"
-	@echo "-----------------------"
-	@echo ""
-	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
-	@echo ""
+# Example target descriptions
+f_stack:
 
-list: ## List all libvirt domains
-	virsh list --all
+	# Description: Run stack tests
+	@echo "Running stack tests..."
