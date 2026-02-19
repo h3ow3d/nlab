@@ -1,11 +1,18 @@
 // nlab – Red-Team Lab Framework CLI
 //
-// Usage:
+// Command tree:
 //
-//	nlab image download          – download the Ubuntu 22.04 base cloud image
-//	nlab up   <stack>            – stand up a lab stack
-//	nlab down <stack>            – tear down a lab stack
-//	nlab list                    – list all libvirt domains
+//	nlab image download              – download the Ubuntu 22.04 base cloud image
+//	nlab key generate <stack>        – generate a per-stack ed25519 SSH key pair
+//	nlab network create <stack>      – define and start the libvirt network
+//	nlab network destroy <stack>     – stop and undefine the libvirt network
+//	nlab vm create <stack> <role>    – provision a single VM
+//	nlab vm destroy <stack> <role>   – destroy a single VM
+//	nlab session <stack>             – wait for SSH readiness then open tmux
+//	nlab dashboard <stack>           – show the live creation dashboard
+//	nlab up <stack>                  – full stack bring-up (key+net+vms+session)
+//	nlab down <stack>                – full stack tear-down
+//	nlab list                        – list all libvirt domains
 package main
 
 import (
@@ -22,7 +29,7 @@ import (
 	"github.com/h3ow3d/nlab/internal/log"
 	"github.com/h3ow3d/nlab/internal/network"
 	"github.com/h3ow3d/nlab/internal/stack"
-	"github.com/h3ow3d/nlab/internal/tmux"
+	nlabTmux "github.com/h3ow3d/nlab/internal/tmux"
 	"github.com/h3ow3d/nlab/internal/vm"
 )
 
@@ -33,10 +40,25 @@ func main() {
 		Long: `nlab – spin up isolated KVM/libvirt lab stacks for offensive-security practice.
 
 Each stack provisions attacker and target VMs on a private NAT network,
-then opens a tmux session so you can start working immediately.`,
+then opens a tmux session so you can start working immediately.
+
+Quick start:
+  nlab image download   # one-time: fetch Ubuntu 22.04 base image
+  nlab up basic         # bring up the basic stack
+  nlab down basic       # tear it all down`,
 	}
 
-	root.AddCommand(imageCmd(), upCmd(), downCmd(), listCmd())
+	root.AddCommand(
+		imageCmd(),
+		keyCmd(),
+		networkCmd(),
+		vmCmd(),
+		sessionCmd(),
+		dashboardCmd(),
+		upCmd(),
+		downCmd(),
+		listCmd(),
+	)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -56,7 +78,8 @@ func imageCmd() *cobra.Command {
 		Long: `Downloads jammy-server-cloudimg-amd64.img, verifies its SHA-256 checksum,
 and installs it to /var/lib/libvirt/images/ubuntu-base.qcow2.
 
-Equivalent to: ./images/download_base.sh`,
+Replaces: ./images/download_base.sh`,
+		Example: "  nlab image download",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return image.Download()
 		},
@@ -64,23 +87,224 @@ Equivalent to: ./images/download_base.sh`,
 	return cmd
 }
 
+// ── key ───────────────────────────────────────────────────────────────────────
+
+func keyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "key",
+		Short: "Manage per-stack SSH key pairs",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "generate <stack>",
+		Short: "Generate an ed25519 SSH key pair for a stack",
+		Long: `Generates keys/<stack>/id_ed25519 and keys/<stack>/id_ed25519.pub if they
+do not already exist.
+
+Replaces: ./scripts/generate-key.sh <stack>`,
+		Example: "  nlab key generate basic",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return keys.EnsureKey(args[0])
+		},
+	})
+	return cmd
+}
+
+// ── network ───────────────────────────────────────────────────────────────────
+
+func networkCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "network",
+		Short: "Manage libvirt networks",
+	}
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "create <stack>",
+		Short: "Define and start the libvirt network for a stack",
+		Long: `Reads stacks/<stack>/network.xml and stacks/<stack>/stack.yaml, then
+defines, starts, and sets the network to autostart in libvirt.
+
+Replaces: ./scripts/create-network.sh stacks/<stack>/network.xml <network> <stack>`,
+		Example: "  nlab network create basic",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			stackName := args[0]
+			cfg, err := stack.Load(stackName)
+			if err != nil {
+				return err
+			}
+			xmlPath := fmt.Sprintf("stacks/%s/network.xml", stackName)
+			return network.Create(xmlPath, cfg.Network)
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "destroy <stack>",
+		Short: "Stop and undefine the libvirt network for a stack",
+		Long: `Reads stacks/<stack>/stack.yaml for the network name, then stops and
+undefines the libvirt network.
+
+Replaces: ./scripts/destroy-network.sh <network>`,
+		Example: "  nlab network destroy basic",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			cfg, err := stack.Load(args[0])
+			if err != nil {
+				return err
+			}
+			return network.Destroy(cfg.Network)
+		},
+	})
+
+	return cmd
+}
+
+// ── vm ────────────────────────────────────────────────────────────────────────
+
+func vmCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "vm",
+		Short: "Manage individual virtual machines",
+	}
+
+	var memory int
+	var vcpus int
+
+	createCmd := &cobra.Command{
+		Use:   "create <stack> <role>",
+		Short: "Provision a single VM within a stack",
+		Long: `Creates a VM named <stack>-<role> using virt-install and cloud-init.
+VM specs (memory, vcpus) are read from stacks/<stack>/stack.yaml unless
+overridden with --memory / --vcpus flags.
+
+Replaces: ./scripts/create-vm.sh <stack> <role> <memory-mb> <vcpus> <network>`,
+		Example: `  nlab vm create basic attacker
+  nlab vm create basic attacker --memory 8192 --vcpus 4`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			stackName, role := args[0], args[1]
+			cfg, err := stack.Load(stackName)
+			if err != nil {
+				return err
+			}
+			mem, cpus := memory, vcpus
+			if mem == 0 || cpus == 0 {
+				for _, v := range cfg.VMs {
+					if v.Name == role {
+						if mem == 0 {
+							mem = v.Memory
+						}
+						if cpus == 0 {
+							cpus = v.VCPUs
+						}
+						break
+					}
+				}
+			}
+			if mem == 0 {
+				return fmt.Errorf("no memory spec found for role %q in stack.yaml; use --memory", role)
+			}
+			if cpus == 0 {
+				return fmt.Errorf("no vcpus spec found for role %q in stack.yaml; use --vcpus", role)
+			}
+			return vm.Create(vm.Config{
+				Stack:   stackName,
+				Role:    role,
+				Memory:  mem,
+				VCPUs:   cpus,
+				Network: cfg.Network,
+			})
+		},
+	}
+	createCmd.Flags().IntVar(&memory, "memory", 0, "RAM in MiB (overrides stack.yaml)")
+	createCmd.Flags().IntVar(&vcpus, "vcpus", 0, "vCPU count (overrides stack.yaml)")
+	cmd.AddCommand(createCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "destroy <stack> <role>",
+		Short: "Destroy a single VM and remove its storage",
+		Long: `Stops and undefines the VM named <stack>-<role>, removing all storage.
+
+Replaces: ./scripts/destroy-vm.sh <stack> <role>`,
+		Example: "  nlab vm destroy basic attacker",
+		Args:    cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return vm.Destroy(args[0], args[1])
+		},
+	})
+
+	return cmd
+}
+
+// ── session ───────────────────────────────────────────────────────────────────
+
+func sessionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "session <stack>",
+		Short: "Wait for SSH readiness then open a tmux session",
+		Long: `Polls each SSH VM defined in stacks/<stack>/layout.yaml until it is
+reachable, then opens a tmux session with the configured pane layout.
+
+Replaces: ./scripts/launch-tmux.sh <stack> <network>`,
+		Example: "  nlab session basic",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			stackName := args[0]
+			cfg, err := stack.Load(stackName)
+			if err != nil {
+				return err
+			}
+			return nlabTmux.Launch(stackName, cfg.Network)
+		},
+	}
+}
+
+// ── dashboard ─────────────────────────────────────────────────────────────────
+
+func dashboardCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "dashboard <stack>",
+		Short: "Show the live creation dashboard for a stack",
+		Long: `Renders a continuously-refreshed in-place dashboard showing keys,
+network, VM states, artifacts, and recent event log entries.
+Press Ctrl-C to exit.
+
+Replaces: ./scripts/create-dashboard.sh <stack> <network>`,
+		Example: "  nlab dashboard basic",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			stackName := args[0]
+			cfg, err := stack.Load(stackName)
+			if err != nil {
+				return err
+			}
+			done := make(chan struct{})
+			// Block forever; the user presses Ctrl-C to exit.
+			// The dashboard's cleanup handler restores the cursor on signal.
+			dashboard.Run(stackName, cfg.Network, done)
+			return nil
+		},
+	}
+}
+
 // ── up ────────────────────────────────────────────────────────────────────────
 
 func upCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "up <stack>",
-		Short: "Stand up a lab stack",
-		Long: `Brings up the named stack:
-  1. generates a per-stack ed25519 SSH key
-  2. defines and starts the libvirt network
-  3. provisions all VMs in parallel (cloud-init / virt-install)
-  4. shows a live dashboard while VMs boot
-  5. opens a tmux session when every VM is SSH-reachable
+		Short: "Stand up a complete lab stack",
+		Long: `Brings up the named stack end-to-end:
+  1. nlab key generate  <stack>
+  2. nlab network create <stack>
+  3. nlab vm create <stack> <role>  (all VMs in parallel)
+  4. nlab dashboard <stack>          (live progress display)
+  5. nlab session <stack>            (tmux when all VMs are SSH-ready)
 
 Stack configuration is read from stacks/<stack>/stack.yaml.
 
-Equivalent to: make <stack>`,
-		Args: cobra.ExactArgs(1),
+Replaces: make <stack>`,
+		Example: "  nlab up basic",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runUp(args[0])
 		},
@@ -153,7 +377,7 @@ func runUp(stackName string) error {
 	}
 
 	// 4. Launch tmux session.
-	return tmux.Launch(stackName, cfg.Network)
+	return nlabTmux.Launch(stackName, cfg.Network)
 }
 
 // ── down ──────────────────────────────────────────────────────────────────────
@@ -161,14 +385,19 @@ func runUp(stackName string) error {
 func downCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "down <stack>",
-		Short: "Tear down a lab stack",
-		Long: `Destroys all VMs in the named stack (and their storage), then removes the
+		Short: "Tear down a complete lab stack",
+		Long: `Destroys every VM in the stack (and their storage), then removes the
 libvirt network.
+
+Equivalent to running:
+  nlab vm destroy <stack> <role>  (for each VM)
+  nlab network destroy <stack>
 
 Stack configuration is read from stacks/<stack>/stack.yaml.
 
-Equivalent to: make <stack>-destroy`,
-		Args: cobra.ExactArgs(1),
+Replaces: make <stack>-destroy`,
+		Example: "  nlab down basic",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runDown(args[0])
 		},
@@ -198,7 +427,8 @@ func listCmd() *cobra.Command {
 		Short: "List all libvirt domains",
 		Long: `Runs 'virsh list --all' to show every defined domain regardless of state.
 
-Equivalent to: make list`,
+Replaces: make list`,
+		Example: "  nlab list",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cmd := exec.Command("virsh", "--connect", "qemu:///system", "list", "--all")
 			cmd.Stdout = os.Stdout

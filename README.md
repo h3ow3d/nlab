@@ -57,10 +57,52 @@ To use the **template** stack instead:
 4. Provision **basic-target** (2 GB RAM, 2 vCPUs — apache2)
 5. Show a live dashboard while VMs boot, then open a tmux session
 
+---
+
+## Command Reference
+
+Every bash script in the repo has a direct `nlab` equivalent:
+
+| Command | Replaces |
+|---|---|
+| `nlab image download` | `./images/download_base.sh` |
+| `nlab key generate <stack>` | `./scripts/generate-key.sh <stack>` |
+| `nlab network create <stack>` | `./scripts/create-network.sh ...` |
+| `nlab network destroy <stack>` | `./scripts/destroy-network.sh <network>` |
+| `nlab vm create <stack> <role>` | `./scripts/create-vm.sh ...` |
+| `nlab vm destroy <stack> <role>` | `./scripts/destroy-vm.sh <stack> <role>` |
+| `nlab session <stack>` | `./scripts/launch-tmux.sh <stack> <network>` |
+| `nlab dashboard <stack>` | `./scripts/create-dashboard.sh <stack> <network>` |
+| `nlab up <stack>` | `make <stack>` |
+| `nlab down <stack>` | `make <stack>-destroy` |
+| `nlab list` | `make list` |
+
+Use `nlab <command> --help` for detailed usage and examples.
+
+### Examples
+
+```bash
+# Individual operations (granular control)
+nlab key generate basic
+nlab network create basic
+nlab vm create basic attacker
+nlab vm create basic target
+nlab dashboard basic          # open live dashboard in separate terminal
+nlab session basic            # wait for SSH then open tmux
+
+# Tear down step-by-step
+nlab vm destroy basic attacker
+nlab vm destroy basic target
+nlab network destroy basic
+
+# Override VM specs at creation time
+nlab vm create basic attacker --memory 8192 --vcpus 4
+```
+
 ### Legacy Make Targets
 
 The original `make basic` / `make basic-destroy` targets still work and continue
-to call the shell scripts in `scripts/`.  The Go CLI is the recommended interface
+to call the shell scripts in `scripts/`. The Go CLI is the recommended interface
 going forward.
 
 ### tmux Layout
