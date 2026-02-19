@@ -1,0 +1,11 @@
+layout: even-horizontal
+panes:
+  - name: attacker
+    type: ssh
+    vm: attacker
+  - name: target
+    type: ssh
+    vm: target
+  - name: monitor
+    type: command
+    command: "sudo tcpdump -i virbr-{stack} -nn -tttt -vvv"

@@ -41,6 +41,13 @@ make basic
 make basic-destroy
 ```
 
+To start from the **template** stack instead:
+
+```bash
+make template         # bring up template stack
+make template-destroy # tear it down
+```
+
 `make basic` will:
 1. Generate a per-stack ed25519 SSH key under `keys/basic/`
 2. Create the isolated `basic_net` libvirt network (`10.10.10.0/24`)
@@ -99,16 +106,26 @@ nlab/
 │   ├── generate-key.sh       # Generate a per-stack ed25519 key pair
 │   └── launch-tmux.sh        # Wait for VMs then open tmux session
 └── stacks/
-    └── basic/
-        ├── stack.mk           # Make targets: basic / basic-destroy
-        ├── network.xml        # Libvirt network definition
+    ├── basic/
+    │   ├── stack.mk           # Make targets: basic / basic-destroy
+    │   ├── network.xml        # Libvirt network definition
+    │   ├── layout.yaml        # tmux pane layout definition
+    │   ├── attacker/
+    │   │   ├── meta-data      # cloud-init meta-data
+    │   │   └── user-data      # cloud-init user-data template
+    │   └── target/
+    │       ├── meta-data
+    │       └── user-data
+    └── template/
+        ├── stack.mk           # Make targets: template / template-destroy
+        ├── network.xml        # Libvirt network definition (10.10.20.0/24)
         ├── layout.yaml        # tmux pane layout definition
         ├── attacker/
         │   ├── meta-data      # cloud-init meta-data
-        │   └── user-data      # cloud-init user-data template
+        │   └── user-data      # cloud-init user-data (customise packages here)
         └── target/
             ├── meta-data
-            └── user-data
+            └── user-data      # cloud-init user-data (customise packages here)
 ```
 
 ---
