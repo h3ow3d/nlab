@@ -18,9 +18,9 @@ basic: ## Stand up the basic stack (attacker + target VMs on basic_net)
 	  ./scripts/create-vm.sh $(STACK_NAME) target 2048 2 $(NETWORK_NAME) > logs/target.log 2>&1 & \
 	  TGT_PID=$$!; \
 	  wait $$ATT_PID $$TGT_PID; \
+	  DASHBOARD_PID=$$DASH_PID ./scripts/launch-tmux.sh $(STACK_NAME) $(NETWORK_NAME); \
 	  kill $$DASH_PID 2>/dev/null || true; \
 	  wait $$DASH_PID 2>/dev/null || true
-	./scripts/launch-tmux.sh $(STACK_NAME) $(NETWORK_NAME)
 
 basic-destroy: ## Tear down the basic stack
 	./scripts/destroy-vm.sh $(STACK_NAME) attacker
