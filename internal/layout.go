@@ -1,5 +1,4 @@
-// Package layout parses the layout.yaml file that defines the tmux pane layout.
-package layout
+package lab
 
 import (
 	"fmt"
@@ -23,22 +22,19 @@ type Pane struct {
 	Command string `yaml:"command"` // set when Type == "command"
 }
 
-// Load reads and parses a layout.yaml file.
-func Load(path string) (*Layout, error) {
+// LoadLayout reads and parses a layout.yaml file.
+func LoadLayout(path string) (*Layout, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read layout file: %w", err)
 	}
-
 	var l Layout
 	if err := yaml.Unmarshal(data, &l); err != nil {
 		return nil, fmt.Errorf("parse layout file: %w", err)
 	}
-
 	if l.Layout == "" {
 		l.Layout = "tiled"
 	}
-
 	return &l, nil
 }
 

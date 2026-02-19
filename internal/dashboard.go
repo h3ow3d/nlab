@@ -1,5 +1,4 @@
-// Package dashboard renders a live creation dashboard in-place on the terminal.
-package dashboard
+package lab
 
 import (
 	"bufio"
@@ -9,20 +8,17 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/h3ow3d/nlab/internal/vm"
 )
 
 const (
-	libvirtURI = "qemu:///system"
-	maxEvents  = 8
-	lineWidth  = 70
+	dashMaxEvents = 8
+	lineWidth     = 70
 )
 
-// Run renders a refreshing dashboard for the given stack and network until the
-// done channel is closed.
-func Run(stack, network string, done <-chan struct{}) {
-	vmSSH := make(map[string]bool) // persists SSH readiness across frames
+// RunDashboard renders a refreshing dashboard for the given stack and network
+// until the done channel is closed.
+func RunDashboard(stack, network string, done <-chan struct{}) {
+	vmSSH := make(map[string]bool)
 	prevLines := 0
 
 	hideCursor()
@@ -31,7 +27,6 @@ func Run(stack, network string, done <-chan struct{}) {
 	for {
 		select {
 		case <-done:
-			// Move past the last drawn block and restore cursor.
 			fmt.Printf("\033[%dB\n", prevLines)
 			return
 		default:
@@ -41,33 +36,29 @@ func Run(stack, network string, done <-chan struct{}) {
 			fmt.Printf("\033[%dF", prevLines)
 		}
 
-		lines := render(stack, network, vmSSH)
+		lines := renderDashboard(stack, network, vmSSH)
 		for _, l := range lines {
 			fmt.Printf("%s\033[K\n", l)
 		}
 		prevLines = len(lines)
-
 		time.Sleep(time.Second)
 	}
 }
 
-// render builds all dashboard lines for one frame.
-func render(stack, network string, vmSSH map[string]bool) []string {
+func renderDashboard(stack, network string, vmSSH map[string]bool) []string {
 	var out []string
-
 	out = append(out, fmt.Sprintf("== nlab  stack=%-12s  %s ==",
 		stack, time.Now().Format("15:04:05")))
 	out = append(out, "")
-	out = append(out, renderKeys(stack)...)
-	out = append(out, renderNetworks(network)...)
-	out = append(out, renderVMs(stack, network, vmSSH)...)
-	out = append(out, renderArtifacts(stack)...)
-	out = append(out, renderEvents(stack)...)
-
+	out = append(out, renderDashKeys(stack)...)
+	out = append(out, renderDashNetworks(network)...)
+	out = append(out, renderDashVMs(stack, network, vmSSH)...)
+	out = append(out, renderDashArtifacts(stack)...)
+	out = append(out, renderDashEvents(stack)...)
 	return out
 }
 
-func section(title string) string {
+func dashSection(title string) string {
 	prefix := "-- " + title + " "
 	padLen := lineWidth - len(prefix)
 	if padLen < 1 {
@@ -76,39 +67,34 @@ func section(title string) string {
 	return prefix + strings.Repeat("-", padLen)
 }
 
-func renderKeys(stack string) []string {
+func renderDashKeys(stack string) []string {
 	var out []string
-	out = append(out, section("KEYS"))
+	out = append(out, dashSection("KEYS"))
 	out = append(out, fmt.Sprintf("  %-38s  %-8s  %s", "FILE", "STATUS", "FINGERPRINT"))
-
 	priv := filepath.Join("keys", stack, "id_ed25519")
 	pub := priv + ".pub"
-
 	if _, err := os.Stat(priv); err == nil {
 		fp := keyFingerprint(priv)
 		out = append(out, fmt.Sprintf("  %-38s  %-8s  %s", priv, "exists", fp))
 	} else {
 		out = append(out, fmt.Sprintf("  %-38s  %s", priv, "missing"))
 	}
-
 	if _, err := os.Stat(pub); err == nil {
 		out = append(out, fmt.Sprintf("  %-38s  %s", pub, "exists"))
 	} else {
 		out = append(out, fmt.Sprintf("  %-38s  %s", pub, "missing"))
 	}
-
 	out = append(out, "")
 	return out
 }
 
-func renderNetworks(network string) []string {
+func renderDashNetworks(network string) []string {
 	var out []string
-	out = append(out, section("NETWORKS"))
+	out = append(out, dashSection("NETWORKS"))
 	out = append(out, fmt.Sprintf("  %-20s  %-8s  %-8s  %-10s  %s",
 		"NAME", "DEFINED", "ACTIVE", "AUTOSTART", "BRIDGE"))
-
 	defined, active, autostart, bridge := "no", "no", "no", "n/a"
-	info, err := exec.Command("virsh", "--connect", libvirtURI, "net-info", network).Output()
+	info, err := virshCmd("net-info", network).Output()
 	if err == nil {
 		defined = "yes"
 		for _, line := range strings.Split(string(info), "\n") {
@@ -122,26 +108,23 @@ func renderNetworks(network string) []string {
 			}
 		}
 	}
-
 	out = append(out, fmt.Sprintf("  %-20s  %-8s  %-8s  %-10s  %s",
 		network, defined, active, autostart, bridge))
 	out = append(out, "")
 	return out
 }
 
-func renderVMs(stack, network string, vmSSH map[string]bool) []string {
+func renderDashVMs(stack, network string, vmSSH map[string]bool) []string {
 	var out []string
-	out = append(out, section("VMS"))
+	out = append(out, dashSection("VMS"))
 	out = append(out, fmt.Sprintf("  %-22s  %-10s  %-18s  %-15s  %-8s  %s",
 		"NAME", "STATE", "MAC", "IP", "SSH", "READINESS"))
-
-	domainsOut, err := exec.Command("virsh", "--connect", libvirtURI, "list", "--all", "--name").Output()
+	domainsOut, err := virshCmd("list", "--all", "--name").Output()
 	if err != nil {
 		out = append(out, "  (virsh unavailable)")
 		out = append(out, "")
 		return out
 	}
-
 	var domains []string
 	for _, d := range strings.Split(string(domainsOut), "\n") {
 		d = strings.TrimSpace(d)
@@ -149,19 +132,17 @@ func renderVMs(stack, network string, vmSSH map[string]bool) []string {
 			domains = append(domains, d)
 		}
 	}
-
 	if len(domains) == 0 {
 		out = append(out, "  (no domains yet)")
 	} else {
 		key := filepath.Join("keys", stack, "id_ed25519")
 		for _, dom := range domains {
-			state := vm.DomainState(dom)
-			mac := vm.DomainMAC(dom)
+			state := DomainState(dom)
+			mac := DomainMAC(dom)
 			ip := ""
 			if mac != "" {
-				ip = vm.DHCPLeaseIP(network, mac)
+				ip = DHCPLeaseIP(network, mac)
 			}
-
 			sshSt := "pending"
 			if vmSSH[dom] {
 				sshSt = "ready"
@@ -171,7 +152,6 @@ func renderVMs(stack, network string, vmSSH map[string]bool) []string {
 					sshSt = "ready"
 				}
 			}
-
 			readiness := "creating"
 			switch {
 			case state == "running" && sshSt == "ready":
@@ -181,7 +161,6 @@ func renderVMs(stack, network string, vmSSH map[string]bool) []string {
 			case state == "running":
 				readiness = "booting"
 			}
-
 			macStr := mac
 			if macStr == "" {
 				macStr = "n/a"
@@ -190,48 +169,40 @@ func renderVMs(stack, network string, vmSSH map[string]bool) []string {
 			if ipStr == "" {
 				ipStr = "pending"
 			}
-
 			out = append(out, fmt.Sprintf("  %-22s  %-10s  %-18s  %-15s  %-8s  %s",
 				dom, state, macStr, ipStr, sshSt, readiness))
 		}
 	}
-
 	out = append(out, "")
 	return out
 }
 
-func renderArtifacts(stack string) []string {
+func renderDashArtifacts(stack string) []string {
 	var out []string
-	out = append(out, section("ARTIFACTS"))
+	out = append(out, dashSection("ARTIFACTS"))
 	out = append(out, fmt.Sprintf("  %-36s  %-8s  %s", "FILE", "EXISTS", "SIZE"))
-
 	found := false
-
-	glob, _ := filepath.Glob(stack + "-*-seed.iso")
-	for _, iso := range glob {
+	isos, _ := filepath.Glob(stack + "-*-seed.iso")
+	for _, iso := range isos {
 		found = true
 		out = append(out, fmt.Sprintf("  %-36s  %-8s  %s", iso, "yes", fileSize(iso)))
 	}
-
 	logFiles, _ := filepath.Glob("logs/*.log")
 	for _, lf := range logFiles {
 		found = true
 		out = append(out, fmt.Sprintf("  %-36s  %-8s  %s", lf, "yes", fileSize(lf)))
 	}
-
 	if !found {
 		out = append(out, "  (no artifacts yet)")
 	}
-
 	out = append(out, "")
 	return out
 }
 
-func renderEvents(stack string) []string {
+func renderDashEvents(stack string) []string {
 	eventsFile := filepath.Join("logs", stack+"-events.log")
 	var out []string
-	out = append(out, section(fmt.Sprintf("EVENTS (last %d)", maxEvents)))
-
+	out = append(out, dashSection(fmt.Sprintf("EVENTS (last %d)", dashMaxEvents)))
 	f, err := os.Open(eventsFile)
 	if err != nil {
 		out = append(out, "  (no events yet)")
@@ -239,17 +210,15 @@ func renderEvents(stack string) []string {
 		return out
 	}
 	defer f.Close()
-
 	var lines []string
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-
 	if len(lines) == 0 {
 		out = append(out, "  (no events yet)")
 	} else {
-		start := len(lines) - maxEvents
+		start := len(lines) - dashMaxEvents
 		if start < 0 {
 			start = 0
 		}
@@ -257,12 +226,11 @@ func renderEvents(stack string) []string {
 			out = append(out, "  "+l)
 		}
 	}
-
 	out = append(out, "")
 	return out
 }
 
-// sshReachable returns true if ssh can connect to the host with BatchMode=yes.
+// sshReachable returns true if SSH can connect with BatchMode=yes.
 func sshReachable(key, ip string) bool {
 	cmd := exec.Command("ssh",
 		"-n",
@@ -271,7 +239,7 @@ func sshReachable(key, ip string) bool {
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-i", key,
-		"ubuntu@"+ip,
+		sshUser+"@"+ip,
 		"true",
 	)
 	return cmd.Run() == nil

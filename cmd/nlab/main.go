@@ -23,14 +23,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/h3ow3d/nlab/internal/dashboard"
-	"github.com/h3ow3d/nlab/internal/image"
-	"github.com/h3ow3d/nlab/internal/keys"
-	"github.com/h3ow3d/nlab/internal/log"
-	"github.com/h3ow3d/nlab/internal/network"
-	"github.com/h3ow3d/nlab/internal/stack"
-	nlabTmux "github.com/h3ow3d/nlab/internal/tmux"
-	"github.com/h3ow3d/nlab/internal/vm"
+	lab "github.com/h3ow3d/nlab/internal"
 )
 
 func main() {
@@ -81,7 +74,7 @@ and installs it to /var/lib/libvirt/images/ubuntu-base.qcow2.
 Replaces: ./images/download_base.sh`,
 		Example: "  nlab image download",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return image.Download()
+			return lab.Download()
 		},
 	})
 	return cmd
@@ -104,7 +97,7 @@ Replaces: ./scripts/generate-key.sh <stack>`,
 		Example: "  nlab key generate basic",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return keys.EnsureKey(args[0])
+			return lab.EnsureKey(args[0])
 		},
 	})
 	return cmd
@@ -129,12 +122,11 @@ Replaces: ./scripts/create-network.sh stacks/<stack>/network.xml <network> <stac
 		Args:    cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			stackName := args[0]
-			cfg, err := stack.Load(stackName)
+			cfg, err := lab.LoadStack(stackName)
 			if err != nil {
 				return err
 			}
-			xmlPath := fmt.Sprintf("stacks/%s/network.xml", stackName)
-			return network.Create(xmlPath, cfg.Network)
+			return lab.CreateNetwork(fmt.Sprintf("stacks/%s/network.xml", stackName), cfg.Network)
 		},
 	})
 
@@ -148,11 +140,11 @@ Replaces: ./scripts/destroy-network.sh <network>`,
 		Example: "  nlab network destroy basic",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			cfg, err := stack.Load(args[0])
+			cfg, err := lab.LoadStack(args[0])
 			if err != nil {
 				return err
 			}
-			return network.Destroy(cfg.Network)
+			return lab.DestroyNetwork(cfg.Network)
 		},
 	})
 
@@ -183,7 +175,7 @@ Replaces: ./scripts/create-vm.sh <stack> <role> <memory-mb> <vcpus> <network>`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			stackName, role := args[0], args[1]
-			cfg, err := stack.Load(stackName)
+			cfg, err := lab.LoadStack(stackName)
 			if err != nil {
 				return err
 			}
@@ -207,7 +199,7 @@ Replaces: ./scripts/create-vm.sh <stack> <role> <memory-mb> <vcpus> <network>`,
 			if cpus == 0 {
 				return fmt.Errorf("no vcpus spec found for role %q in stack.yaml; use --vcpus", role)
 			}
-			return vm.Create(vm.Config{
+			return lab.CreateVM(lab.VMConfig{
 				Stack:   stackName,
 				Role:    role,
 				Memory:  mem,
@@ -229,7 +221,7 @@ Replaces: ./scripts/destroy-vm.sh <stack> <role>`,
 		Example: "  nlab vm destroy basic attacker",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return vm.Destroy(args[0], args[1])
+			return lab.DestroyVM(args[0], args[1])
 		},
 	})
 
@@ -249,12 +241,11 @@ Replaces: ./scripts/launch-tmux.sh <stack> <network>`,
 		Example: "  nlab session basic",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			stackName := args[0]
-			cfg, err := stack.Load(stackName)
+			cfg, err := lab.LoadStack(args[0])
 			if err != nil {
 				return err
 			}
-			return nlabTmux.Launch(stackName, cfg.Network)
+			return lab.LaunchTmux(args[0], cfg.Network)
 		},
 	}
 }
@@ -273,15 +264,12 @@ Replaces: ./scripts/create-dashboard.sh <stack> <network>`,
 		Example: "  nlab dashboard basic",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			stackName := args[0]
-			cfg, err := stack.Load(stackName)
+			cfg, err := lab.LoadStack(args[0])
 			if err != nil {
 				return err
 			}
 			done := make(chan struct{})
-			// Block forever; the user presses Ctrl-C to exit.
-			// The dashboard's cleanup handler restores the cursor on signal.
-			dashboard.Run(stackName, cfg.Network, done)
+			lab.RunDashboard(args[0], cfg.Network, done)
 			return nil
 		},
 	}
@@ -312,36 +300,31 @@ Replaces: make <stack>`,
 }
 
 func runUp(stackName string) error {
-	cfg, err := stack.Load(stackName)
+	cfg, err := lab.LoadStack(stackName)
 	if err != nil {
 		return err
 	}
-
-	networkXML := fmt.Sprintf("stacks/%s/network.xml", stackName)
 
 	if err := os.MkdirAll("logs", 0o755); err != nil {
 		return fmt.Errorf("create logs dir: %w", err)
 	}
 
-	// 1. Generate SSH key.
-	if err := keys.EnsureKey(stackName); err != nil {
+	if err := lab.EnsureKey(stackName); err != nil {
 		return err
 	}
 
-	// 2. Create network.
-	if err := network.Create(networkXML, cfg.Network); err != nil {
+	if err := lab.CreateNetwork(fmt.Sprintf("stacks/%s/network.xml", stackName), cfg.Network); err != nil {
 		return err
 	}
 
-	// 3. Provision VMs in parallel with a live dashboard.
 	done := make(chan struct{})
-	go dashboard.Run(stackName, cfg.Network, done)
+	go lab.RunDashboard(stackName, cfg.Network, done)
 
 	var wg sync.WaitGroup
 	errs := make(chan error, len(cfg.VMs))
 
 	for _, v := range cfg.VMs {
-		v := v // capture
+		v := v
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -353,14 +336,13 @@ func runUp(stackName string) error {
 			}
 			defer logFile.Close()
 
-			vmCfg := vm.Config{
+			if err := lab.CreateVM(lab.VMConfig{
 				Stack:   stackName,
 				Role:    v.Name,
 				Memory:  v.Memory,
 				VCPUs:   v.VCPUs,
 				Network: cfg.Network,
-			}
-			if err := vm.Create(vmCfg); err != nil {
+			}); err != nil {
 				errs <- fmt.Errorf("create VM %s: %w", v.Name, err)
 			}
 		}()
@@ -376,8 +358,7 @@ func runUp(stackName string) error {
 		}
 	}
 
-	// 4. Launch tmux session.
-	return nlabTmux.Launch(stackName, cfg.Network)
+	return lab.LaunchTmux(stackName, cfg.Network)
 }
 
 // ── down ──────────────────────────────────────────────────────────────────────
@@ -405,18 +386,18 @@ Replaces: make <stack>-destroy`,
 }
 
 func runDown(stackName string) error {
-	cfg, err := stack.Load(stackName)
+	cfg, err := lab.LoadStack(stackName)
 	if err != nil {
 		return err
 	}
 
 	for _, v := range cfg.VMs {
-		if err := vm.Destroy(stackName, v.Name); err != nil {
-			log.Error(err.Error())
+		if err := lab.DestroyVM(stackName, v.Name); err != nil {
+			lab.Error(err.Error())
 		}
 	}
 
-	return network.Destroy(cfg.Network)
+	return lab.DestroyNetwork(cfg.Network)
 }
 
 // ── list ──────────────────────────────────────────────────────────────────────
@@ -437,3 +418,4 @@ Replaces: make list`,
 		},
 	}
 }
+

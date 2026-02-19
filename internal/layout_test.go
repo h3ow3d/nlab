@@ -1,11 +1,11 @@
-package layout_test
+package lab_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/h3ow3d/nlab/internal/layout"
+	lab "github.com/h3ow3d/nlab/internal"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {
@@ -17,7 +17,7 @@ func writeFile(t *testing.T, dir, name, content string) string {
 	return path
 }
 
-func TestLoad(t *testing.T) {
+func TestLoadLayout(t *testing.T) {
 	dir := t.TempDir()
 	yaml := `layout: even-horizontal
 panes:
@@ -33,9 +33,9 @@ panes:
 `
 	path := writeFile(t, dir, "layout.yaml", yaml)
 
-	l, err := layout.Load(path)
+	l, err := lab.LoadLayout(path)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadLayout: %v", err)
 	}
 
 	if l.Layout != "even-horizontal" {
@@ -52,13 +52,13 @@ panes:
 	}
 }
 
-func TestLoadDefaultLayout(t *testing.T) {
+func TestLoadLayoutDefaultLayout(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "layout.yaml", "panes:\n  - type: command\n    command: echo hi\n")
 
-	l, err := layout.Load(path)
+	l, err := lab.LoadLayout(path)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadLayout: %v", err)
 	}
 	if l.Layout != "tiled" {
 		t.Errorf("default Layout = %q, want tiled", l.Layout)
@@ -80,9 +80,9 @@ panes:
 `
 	path := writeFile(t, dir, "layout.yaml", yaml)
 
-	l, err := layout.Load(path)
+	l, err := lab.LoadLayout(path)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadLayout: %v", err)
 	}
 
 	vms := l.SSHVMs()
@@ -103,7 +103,7 @@ func TestExpandCommand(t *testing.T) {
 		{"{stack}/{stack}", "x", "x/x"},
 	}
 	for _, tc := range tests {
-		got := layout.ExpandCommand(tc.cmd, tc.stack)
+		got := lab.ExpandCommand(tc.cmd, tc.stack)
 		if got != tc.want {
 			t.Errorf("ExpandCommand(%q, %q) = %q, want %q", tc.cmd, tc.stack, got, tc.want)
 		}

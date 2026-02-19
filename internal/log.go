@@ -1,6 +1,5 @@
-// Package log provides shared logging helpers matching the nlab script conventions.
-// Output is colorized when the terminal supports it (TERM != "" and stdout is a TTY).
-package log
+// Package lab contains the core logic for the nlab CLI.
+package lab
 
 import (
 	"fmt"

@@ -1,17 +1,14 @@
-// Package keys generates per-stack ed25519 SSH key pairs.
-package keys
+package lab
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"github.com/h3ow3d/nlab/internal/log"
 )
 
 // EnsureKey generates an ed25519 key pair at keys/<stack>/id_ed25519 if it
-// does not already exist. It mirrors the behaviour of generate-key.sh.
+// does not already exist.
 func EnsureKey(stack string) error {
 	keyDir := filepath.Join("keys", stack)
 	keyPath := filepath.Join(keyDir, "id_ed25519")
@@ -21,11 +18,11 @@ func EnsureKey(stack string) error {
 	}
 
 	if _, err := os.Stat(keyPath); err == nil {
-		log.Skip(fmt.Sprintf("SSH key already exists for stack %s", stack))
+		Skip(fmt.Sprintf("SSH key already exists for stack %s", stack))
 		return nil
 	}
 
-	log.Info(fmt.Sprintf("Generating SSH key for stack %s", stack))
+	Info(fmt.Sprintf("Generating SSH key for stack %s", stack))
 	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-f", keyPath, "-N", "", "-q")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -33,6 +30,6 @@ func EnsureKey(stack string) error {
 		return fmt.Errorf("ssh-keygen: %w", err)
 	}
 
-	log.Ok(fmt.Sprintf("Key generated at %s", keyPath))
+	Ok(fmt.Sprintf("Key generated at %s", keyPath))
 	return nil
 }

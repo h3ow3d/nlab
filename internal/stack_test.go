@@ -1,15 +1,13 @@
-package stack_test
+package lab_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/h3ow3d/nlab/internal/stack"
+	lab "github.com/h3ow3d/nlab/internal"
 )
 
-// setupStack creates a minimal stacks/<name>/stack.yaml in a temp directory and
-// changes the working directory so stack.Load can find it.
 func setupStack(t *testing.T, name, content string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -27,7 +25,7 @@ func setupStack(t *testing.T, name, content string) {
 	}
 }
 
-func TestLoadBasic(t *testing.T) {
+func TestLoadStackBasic(t *testing.T) {
 	setupStack(t, "basic", `
 network: basic_net
 vms:
@@ -38,9 +36,9 @@ vms:
     memory: 2048
     vcpus: 2
 `)
-	cfg, err := stack.Load("basic")
+	cfg, err := lab.LoadStack("basic")
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadStack: %v", err)
 	}
 	if cfg.Network != "basic_net" {
 		t.Errorf("Network = %q, want basic_net", cfg.Network)
@@ -56,34 +54,34 @@ vms:
 	}
 }
 
-func TestLoadMissingNetwork(t *testing.T) {
+func TestLoadStackMissingNetwork(t *testing.T) {
 	setupStack(t, "bad", `
 vms:
   - name: x
     memory: 1024
     vcpus: 1
 `)
-	_, err := stack.Load("bad")
+	_, err := lab.LoadStack("bad")
 	if err == nil {
 		t.Error("expected error for missing network field, got nil")
 	}
 }
 
-func TestLoadMissingVMs(t *testing.T) {
+func TestLoadStackMissingVMs(t *testing.T) {
 	setupStack(t, "empty", `network: foo_net`)
-	_, err := stack.Load("empty")
+	_, err := lab.LoadStack("empty")
 	if err == nil {
 		t.Error("expected error for empty vms list, got nil")
 	}
 }
 
-func TestLoadNotFound(t *testing.T) {
+func TestLoadStackNotFound(t *testing.T) {
 	dir := t.TempDir()
 	orig, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 	_ = os.Chdir(dir)
 
-	_, err := stack.Load("nosuchstack")
+	_, err := lab.LoadStack("nosuchstack")
 	if err == nil {
 		t.Error("expected error for non-existent stack.yaml, got nil")
 	}
