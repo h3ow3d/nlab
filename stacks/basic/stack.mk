@@ -1,10 +1,12 @@
 .PHONY: basic basic-destroy
 
-STACK_NAME=basic
-NETWORK_NAME=basic_net
-NETWORK_XML=stacks/basic/network.xml
+basic: STACK_NAME=basic
+basic: NETWORK_NAME=basic_net
+basic: NETWORK_XML=stacks/basic/network.xml
+basic-destroy: STACK_NAME=basic
+basic-destroy: NETWORK_NAME=basic_net
 
-basic:
+basic: ## Stand up the basic stack (attacker + target VMs on basic_net)
 	mkdir -p logs
 	./scripts/generate-key.sh $(STACK_NAME)
 	./scripts/create-network.sh $(NETWORK_XML) $(NETWORK_NAME) $(STACK_NAME)
@@ -17,7 +19,7 @@ basic:
 	  kill $$DASH_PID 2>/dev/null || true
 	./scripts/launch-tmux.sh $(STACK_NAME) $(NETWORK_NAME)
 
-basic-destroy:
+basic-destroy: ## Tear down the basic stack
 	./scripts/destroy-vm.sh $(STACK_NAME) attacker
 	./scripts/destroy-vm.sh $(STACK_NAME) target
 	./scripts/destroy-network.sh $(NETWORK_NAME)
