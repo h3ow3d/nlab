@@ -2,6 +2,11 @@
 set -euo pipefail
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
+if [ $# -lt 2 ]; then
+  echo "[!] Usage: $0 <stack> <role>"
+  exit 1
+fi
+
 STACK=$1
 ROLE=$2
 NAME="${STACK}-${ROLE}"

@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+if [ $# -lt 1 ]; then
+  echo "[!] Usage: $0 <stack>"
+  exit 1
+fi
+
 STACK=$1
 KEY_DIR="keys/$STACK"
 KEY_PATH="$KEY_DIR/id_ed25519"
