@@ -30,7 +30,14 @@ declare -A VM_SSH   # persists SSH readiness across iterations
 
 hide_cursor() { printf '\033[?25l'; }
 show_cursor()  { printf '\033[?25h'; }
-trap 'show_cursor; printf "\n"' EXIT
+
+cleanup() {
+  local skip=$((PREV_LINES - TOTAL_LINES))
+  [ "$skip" -gt 0 ] && printf '\033[%dB' "$skip"
+  show_cursor
+  printf '\n'
+}
+trap cleanup EXIT
 
 # ── rendering helpers ─────────────────────────────────────────────────────────
 
