@@ -91,6 +91,7 @@ nlab/
 │   └── download_base.sh      # Downloads Ubuntu 22.04 cloud image
 ├── keys/                     # Per-stack SSH key pairs (git-ignored)
 ├── scripts/
+│   ├── lib.sh                # Shared helpers (LIBVIRT_DEFAULT_URI, log_*)
 │   ├── create-network.sh     # Define & start a libvirt network
 │   ├── create-vm.sh          # Provision a VM from the base image
 │   ├── destroy-network.sh    # Stop & undefine a libvirt network

@@ -1,9 +1,12 @@
 #!/bin/bash
 set -euo pipefail
-export LIBVIRT_DEFAULT_URI=qemu:///system
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
 if [ $# -lt 2 ]; then
-  echo "[!] Usage: $0 <stack> <role>"
+  log_error "Usage: $0 <stack> <role>"
   exit 1
 fi
 
@@ -12,16 +15,16 @@ ROLE=$2
 NAME="${STACK}-${ROLE}"
 SEED="${NAME}-seed.iso"
 
-echo "[+] Destroy request: $NAME"
+log_info "Destroy request: $NAME"
 
 if virsh dominfo "$NAME" >/dev/null 2>&1; then
-  echo "[+] Stopping $NAME (if running)"
+  log_info "Stopping $NAME (if running)"
   virsh destroy "$NAME" 2>/dev/null || true
 
-  echo "[+] Undefining $NAME (and removing storage)"
+  log_info "Undefining $NAME (and removing storage)"
   virsh undefine "$NAME" --remove-all-storage
 else
-  echo "[=] Domain $NAME not found (already gone)"
+  log_skip "Domain $NAME not found (already gone)"
 fi
 
 # Remove local seed ISO (option 1 keeps these in repo root)
@@ -29,9 +32,9 @@ rm -f "$SEED" || true
 
 # Hard verification
 if virsh dominfo "$NAME" >/dev/null 2>&1; then
-  echo "[!] FAILED: $NAME still exists after destroy"
+  log_error "FAILED: $NAME still exists after destroy"
   exit 1
 fi
 
-echo "[✓] $NAME deleted"
+log_ok "$NAME deleted"
 
