@@ -42,6 +42,7 @@ validate_inputs() {
 
   if virsh dominfo "$NAME" >/dev/null 2>&1; then
     log_skip "VM $NAME already exists"
+    emit_event "$STACK" "create-vm" "VM $NAME already exists – skipped"
     exit 0
   fi
 }
@@ -53,10 +54,12 @@ prepare_cloud_init() {
   log_info "Creating cloud-init ISO"
   cloud-localds "$SEED" "$TMP_USER_DATA" "$META_DATA"
   rm -f "$TMP_USER_DATA"
+  emit_event "$STACK" "create-vm" "Cloud-init ISO created for $NAME"
 }
 
 install_vm() {
   log_info "Installing VM $NAME"
+  emit_event "$STACK" "create-vm" "Installing VM $NAME"
 
   virt-install \
     --name "$NAME" \
@@ -71,6 +74,7 @@ install_vm() {
     --noautoconsole
 
   log_ok "VM $NAME deployed"
+  emit_event "$STACK" "create-vm" "VM $NAME deployed"
 }
 
 validate_inputs
