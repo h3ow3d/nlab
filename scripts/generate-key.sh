@@ -18,8 +18,10 @@ mkdir -p "$KEY_DIR"
 
 if [ -f "$KEY_PATH" ]; then
     log_skip "SSH key already exists for stack $STACK"
+    emit_event "$STACK" "generate-key" "SSH key already exists for stack $STACK"
 else
     log_info "Generating SSH key for stack $STACK"
     ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q
     log_ok "Key generated at $KEY_PATH"
+    emit_event "$STACK" "generate-key" "Key generated at $KEY_PATH"
 fi
