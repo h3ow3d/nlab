@@ -1,8 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+
 if [ $# -lt 1 ]; then
-  echo "[!] Usage: $0 <stack>"
+  log_error "Usage: $0 <stack>"
   exit 1
 fi
 
@@ -13,9 +17,9 @@ KEY_PATH="$KEY_DIR/id_ed25519"
 mkdir -p "$KEY_DIR"
 
 if [ -f "$KEY_PATH" ]; then
-    echo "[=] SSH key already exists for stack $STACK"
+    log_skip "SSH key already exists for stack $STACK"
 else
-    echo "[+] Generating SSH key for stack $STACK"
+    log_info "Generating SSH key for stack $STACK"
     ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q
-    echo "[✓] Key generated at $KEY_PATH"
+    log_ok "Key generated at $KEY_PATH"
 fi
