@@ -17,11 +17,12 @@ offensive techniques in a self-contained environment.
 | `tmux` | Terminal multiplexer used by the launch script |
 | `wget` | Image download |
 | `ssh` | Key-based access to VMs |
+| `python3-yaml` | YAML parsing for `layout.yaml` |
 
 Install on Ubuntu / Debian:
 
 ```bash
-sudo apt install qemu-kvm libvirt-daemon-system virtinst cloud-image-utils tmux wget
+sudo apt install qemu-kvm libvirt-daemon-system virtinst cloud-image-utils tmux wget python3-yaml
 sudo usermod -aG libvirt,kvm "$USER"   # log out and back in
 ```
 
@@ -49,6 +50,9 @@ make basic-destroy
 
 ### tmux Layout
 
+Each stack defines its tmux panes in `stacks/<name>/layout.yaml`.  The basic
+stack ships with this layout:
+
 ```
 ┌─────────────────────┬──────────────────────┐
 │  attacker (SSH)     │  tcpdump on virbr-   │
@@ -56,6 +60,26 @@ make basic-destroy
 │  target   (SSH)     │                      │
 └─────────────────────┴──────────────────────┘
 ```
+
+`layout.yaml` format:
+
+```yaml
+layout: even-horizontal   # any tmux select-layout value
+panes:
+  - name: attacker        # optional label
+    type: ssh             # opens an SSH session to the named VM
+    vm: attacker
+  - name: target
+    type: ssh
+    vm: target
+  - name: monitor
+    type: command         # runs an arbitrary shell command
+    command: "sudo tcpdump -i virbr-{stack} -nn -tttt -vvv"
+```
+
+`{stack}` in a `command` value is substituted with the stack name at runtime.
+Add as many panes as you like — the script will wait for every `ssh` VM to
+become reachable before opening the session.
 
 ---
 
@@ -77,6 +101,7 @@ nlab/
     └── basic/
         ├── stack.mk           # Make targets: basic / basic-destroy
         ├── network.xml        # Libvirt network definition
+        ├── layout.yaml        # tmux pane layout definition
         ├── attacker/
         │   ├── meta-data      # cloud-init meta-data
         │   └── user-data      # cloud-init user-data template
@@ -89,9 +114,11 @@ nlab/
 
 ## Adding a New Stack
 
-1. Create `stacks/<name>/` with `network.xml`, `stack.mk`, and
-   `attacker/` + `target/` cloud-init directories.
+1. Create `stacks/<name>/` with `network.xml`, `stack.mk`, `layout.yaml`, and
+   VM cloud-init directories for each VM in the stack.
 2. Use `__SSH_PUBLIC_KEY__` as the placeholder in `user-data` — it is
    substituted at VM creation time with the stack's public key.
 3. Include `stacks/<name>/stack.mk` automatically via the top-level
    `Makefile` wildcard.
+4. Define panes in `layout.yaml` — add an `ssh` entry for each VM and any
+   `command` entries (e.g. tcpdump, logs) you want in the session.
