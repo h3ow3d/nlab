@@ -100,7 +100,7 @@ wait_for_macs() {
   done
 }
 
-# Wait until every SSH VM is reachable, printing live status
+# Wait until every SSH VM is reachable
 wait_for_ssh_ready() {
   while true; do
     for vm in "${SSH_VMS[@]}"; do
@@ -120,17 +120,6 @@ wait_for_ssh_ready() {
       fi
     done
 
-    # Move cursor up (VM_COUNT lines + 1 blank) to overwrite status
-    printf "\033[%dF" $((VM_COUNT + 1))
-
-    for vm in "${SSH_VMS[@]}"; do
-      state=$(virsh domstate "${STACK}-${vm}" 2>/dev/null || echo "unknown")
-      printf "%-18s | state: %-12s | ip: %-15s | ssh: %-8s\n" \
-        "${STACK}-${vm}" "${state:-unknown}" "${VM_IP[$vm]:-pending}" "${VM_SSH[$vm]:-pending}"
-    done
-
-    printf "\n"
-
     all_ready=true
     for vm in "${SSH_VMS[@]}"; do
       if [ "${VM_SSH[$vm]}" != "ready" ]; then
@@ -142,7 +131,6 @@ wait_for_ssh_ready() {
     if $all_ready; then break; fi
 
     if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
-      echo
       log_error "Timeout waiting for VM readiness"
       exit 1
     fi
@@ -154,6 +142,12 @@ wait_for_ssh_ready() {
 
 # Kill any existing session, create a fresh one, and send pane commands
 launch_tmux() {
+  # Kill the background dashboard before taking over the terminal with tmux
+  if [ -n "${DASHBOARD_PID:-}" ]; then
+    kill "$DASHBOARD_PID" 2>/dev/null || true
+    wait "$DASHBOARD_PID" 2>/dev/null || true
+  fi
+
   tmux has-session -t "$SESSION" 2>/dev/null && tmux kill-session -t "$SESSION"
 
   tmux new-session -d -s "$SESSION"
@@ -191,7 +185,6 @@ launch_tmux() {
 parse_layout
 collect_ssh_vms
 
-VM_COUNT=${#SSH_VMS[@]}
 declare -A VM_MAC
 declare -A VM_IP
 declare -A VM_SSH
@@ -203,8 +196,6 @@ for vm in "${SSH_VMS[@]}"; do
 done
 
 log_info "Waiting for VMs to become ready..."
-# Reserve lines for per-VM status output (VM_COUNT lines + 1 blank)
-for i in $(seq 1 $((VM_COUNT + 1))); do echo; done
 
 wait_for_macs
 wait_for_ssh_ready
