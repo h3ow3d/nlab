@@ -7,6 +7,15 @@
 
 set -euo pipefail
 
+# ── colors ────────────────────────────────────────────────────────────────────
+C_RESET=$'\033[0m'
+C_BOLD=$'\033[1m'
+C_DIM=$'\033[2m'
+C_RED=$'\033[31m'
+C_GREEN=$'\033[32m'
+C_YELLOW=$'\033[33m'
+C_CYAN=$'\033[36m'
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
@@ -57,7 +66,29 @@ section() {
   [ "$pad_len" -lt 1 ] && pad_len=1
   local pad
   pad=$(printf '%*s' "$pad_len" '' | tr ' ' '-')
-  pline "${prefix}${pad}"
+  pline "${C_BOLD}${C_YELLOW}${prefix}${pad}${C_RESET}"
+}
+
+# Print a value colored by its meaning, optionally padded to <width> chars.
+# Color scheme: green = good (yes/exists/ready/running),
+#               red   = bad  (no/missing/failed),
+#               yellow = in-progress (pending/booting/creating/waiting-ssh).
+# Usage: cf <value> [<width>]
+cf() {
+  local val="$1" width="${2:-}"
+  local color
+  case "$val" in
+    yes|exists|ready|running)         color="$C_GREEN"  ;;
+    no|missing|failed)                color="$C_RED"    ;;
+    pending|booting|creating|waiting-ssh) color="$C_YELLOW" ;;
+    *)                                color=""          ;;
+  esac
+  if [ -n "$color" ]; then
+    [ -n "$width" ] && printf '%s%-*s%s' "$color" "$width" "$val" "$C_RESET" \
+                    || printf '%s%s%s'   "$color"          "$val" "$C_RESET"
+  else
+    [ -n "$width" ] && printf '%-*s' "$width" "$val" || printf '%s' "$val"
+  fi
 }
 
 # ── section renderers ─────────────────────────────────────────────────────────
@@ -71,14 +102,14 @@ render_keys() {
     local fp
     # ssh-keygen -l output: "<bits> <hash> <comment> (<type>)"; field 2 is the fingerprint
     fp=$(ssh-keygen -l -f "$priv" 2>/dev/null | awk '{print $2}' || echo 'n/a')
-    pline "$(printf '  %-38s  %-8s  %s' "$priv" 'exists' "$fp")"
+    pline "$(printf '  %-38s  ' "$priv")$(cf exists 8)  ${C_DIM}${fp}${C_RESET}"
   else
-    pline "$(printf '  %-38s  %s' "$priv" 'missing')"
+    pline "$(printf '  %-38s  ' "$priv")$(cf missing)"
   fi
   if [ -f "$pub" ]; then
-    pline "$(printf '  %-38s  %s' "$pub" 'exists')"
+    pline "$(printf '  %-38s  ' "$pub")$(cf exists)"
   else
-    pline "$(printf '  %-38s  %s' "$pub" 'missing')"
+    pline "$(printf '  %-38s  ' "$pub")$(cf missing)"
   fi
   pline ""
 }
@@ -95,8 +126,7 @@ render_networks() {
     autostart=$(printf '%s' "$info" | awk '/^Autostart:/{print $2}' || echo 'no')
     bridge=$(printf '%s'    "$info" | awk '/^Bridge:/{print $2}'    || echo 'n/a')
   fi
-  pline "$(printf '  %-20s  %-8s  %-8s  %-10s  %s' \
-    "$NETWORK" "$defined" "${active:-no}" "${autostart:-no}" "${bridge:-n/a}")"
+  pline "$(printf '  %-20s' "$NETWORK")  $(cf "$defined" 8)  $(cf "${active:-no}" 8)  $(cf "${autostart:-no}" 10)  ${bridge:-n/a}"
   pline ""
 }
 
@@ -138,8 +168,7 @@ render_vms() {
       else
         readiness="creating"
       fi
-      pline "$(printf '  %-22s  %-10s  %-18s  %-15s  %-8s  %s' \
-        "$dom" "$state" "${mac:-n/a}" "${ip:-pending}" "$ssh_st" "$readiness")"
+      pline "$(printf '  %-22s' "$dom")  $(cf "$state" 10)  $(printf '%-18s' "${mac:-n/a}")  $(printf '%-15s' "${ip:-pending}")  $(cf "$ssh_st" 8)  $(cf "$readiness")"
     done <<< "$domains"
   fi
   pline ""
@@ -154,7 +183,7 @@ render_artifacts() {
     found=true
     local sz
     sz=$(du -sh "$iso" 2>/dev/null | cut -f1 || echo "?")
-    pline "$(printf '  %-36s  %-8s  %s' "$iso" 'yes' "$sz")"
+    pline "$(printf '  %-36s  ' "$iso")$(cf yes 8)  $sz"
   done
   if [ -d "logs" ]; then
     for logf in logs/*.log; do
@@ -162,7 +191,7 @@ render_artifacts() {
       found=true
       local sz
       sz=$(du -sh "$logf" 2>/dev/null | cut -f1 || echo "?")
-      pline "$(printf '  %-36s  %-8s  %s' "$logf" 'yes' "$sz")"
+      pline "$(printf '  %-36s  ' "$logf")$(cf yes 8)  $sz"
     done
   fi
   $found || pline "  (no artifacts yet)"
@@ -174,7 +203,19 @@ render_events() {
   if [ -f "$EVENTS_FILE" ]; then
     local count=0
     while IFS= read -r ev; do
-      pline "  $ev"
+      # Color: dim prefix, cyan [source] tag, normal message.
+      # Expected format: "EVENT HH:MM:SS [source] message"
+      # Fall back to plain display if the format is unexpected.
+      local prefix tag msg rest
+      if [[ "$ev" == *'['*']'* ]]; then
+        prefix="${ev%%\[*}"
+        rest="${ev#*\[}"
+        tag="[${rest%%\]*}]"
+        msg="${ev#*\] }"
+        pline "  ${C_DIM}${prefix}${C_RESET}${C_CYAN}${tag}${C_RESET} ${msg}"
+      else
+        pline "  $ev"
+      fi
       count=$((count + 1))
     done < <(tail -n "$MAX_EVENTS" "$EVENTS_FILE")
     [ "$count" -eq 0 ] && pline "  (no events yet)"
@@ -187,13 +228,15 @@ render_events() {
 # ── main loop ─────────────────────────────────────────────────────────────────
 
 hide_cursor
+printf '\033[s'   # save cursor position at start of dashboard
 PREV_LINES=0
 
 while true; do
-  [ "$PREV_LINES" -gt 0 ] && printf '\033[%dF' "$PREV_LINES"
+  [ "$PREV_LINES" -gt 0 ] && printf '\033[u\033[J'   # restore + clear to end
   TOTAL_LINES=0
 
-  pline "$(printf '== nlab  stack=%-12s  %s ==' "$STACK" "$(date '+%H:%M:%S')")"
+  pline "$(printf '%s== nlab  stack=%-12s  %s ==%s' \
+    "${C_BOLD}${C_CYAN}" "$STACK" "$(date '+%H:%M:%S')" "$C_RESET")"
   pline ""
   render_keys
   render_networks
