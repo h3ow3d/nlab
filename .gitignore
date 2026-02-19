@@ -1,0 +1,13 @@
+# Runtime artifacts
+logs/
+keys/*
+!keys/.gitkeep
+
+# VM images
+*.qcow2
+*.img
+*.iso
+
+# Temp files
+*.swp
+*.tmp

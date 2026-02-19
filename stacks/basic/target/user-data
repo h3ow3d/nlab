@@ -1,0 +1,19 @@
+#cloud-config
+hostname: target
+
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: sudo
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - __SSH_PUBLIC_KEY__
+
+disable_root: true
+ssh_pwauth: false
+
+packages:
+  - apache2
+
+runcmd:
+  - systemctl enable --now apache2
