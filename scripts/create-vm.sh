@@ -3,6 +3,11 @@ set -euo pipefail
 
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
+if [ $# -lt 5 ]; then
+  echo "[!] Usage: $0 <stack> <role> <memory-mb> <vcpus> <network>"
+  exit 1
+fi
+
 STACK=$1
 ROLE=$2
 MEMORY=$3

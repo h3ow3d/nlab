@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+if [ $# -lt 2 ]; then
+  echo "[!] Usage: $0 <xml-path> <network-name>"
+  exit 1
+fi
+
 XML_PATH=$1
 NETWORK_NAME=$2
 

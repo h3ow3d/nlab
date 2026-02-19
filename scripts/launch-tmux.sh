@@ -3,6 +3,11 @@ set -euo pipefail
 
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
+if [ $# -lt 2 ]; then
+  echo "[!] Usage: $0 <stack> <network>"
+  exit 1
+fi
+
 STACK=$1
 NETWORK=$2
 
@@ -33,7 +38,13 @@ while true; do
     break
   fi
 
+  if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+    echo "[!] Timeout waiting for VM network interfaces"
+    exit 1
+  fi
+
   sleep 1
+  ELAPSED=$((ELAPSED + 1))
 done
 
 while true; do
