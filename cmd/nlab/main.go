@@ -317,17 +317,24 @@ func runUp(stackName string) error {
 		return err
 	}
 
+	// Start dashboard in background. Use a WaitGroup so we can be sure it has
+	// fully exited (and released the terminal) before LaunchTmux draws anything.
 	done := make(chan struct{})
-	go lab.RunDashboard(stackName, cfg.Network, done)
+	var dashWg sync.WaitGroup
+	dashWg.Add(1)
+	go func() {
+		defer dashWg.Done()
+		lab.RunDashboard(stackName, cfg.Network, done)
+	}()
 
-	var wg sync.WaitGroup
+	var vmWg sync.WaitGroup
 	errs := make(chan error, len(cfg.VMs))
 
 	for _, v := range cfg.VMs {
 		v := v
-		wg.Add(1)
+		vmWg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer vmWg.Done()
 			logPath := fmt.Sprintf("logs/%s.log", v.Name)
 			logFile, err := os.Create(logPath)
 			if err != nil {
@@ -342,14 +349,16 @@ func runUp(stackName string) error {
 				Memory:  v.Memory,
 				VCPUs:   v.VCPUs,
 				Network: cfg.Network,
+				Out:     logFile, // redirect virt-install / cloud-localds away from stdout
 			}); err != nil {
 				errs <- fmt.Errorf("create VM %s: %w", v.Name, err)
 			}
 		}()
 	}
 
-	wg.Wait()
-	close(done)
+	vmWg.Wait()
+	close(done)     // signal dashboard to stop
+	dashWg.Wait()   // wait until dashboard goroutine has fully exited
 
 	close(errs)
 	for e := range errs {

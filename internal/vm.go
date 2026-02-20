@@ -2,6 +2,7 @@ package lab
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,12 +15,31 @@ const (
 )
 
 // VMConfig holds the parameters needed to create one VM.
+// Set Out to a non-nil writer to redirect subprocess and status output away
+// from stdout (e.g. when a live dashboard is running). Info/Ok/Skip log lines
+// are also suppressed when Out is set.
 type VMConfig struct {
 	Stack   string
 	Role    string
 	Memory  int // MiB
 	VCPUs   int
 	Network string
+	Out     io.Writer // nil → os.Stdout
+}
+
+// vmOut returns the writer to use for subprocess output.
+func (cfg VMConfig) vmOut() io.Writer {
+	if cfg.Out != nil {
+		return cfg.Out
+	}
+	return os.Stdout
+}
+
+// vmLog emits a status line only when not redirecting output (i.e. interactive).
+func (cfg VMConfig) vmLog(fn func(string), msg string) {
+	if cfg.Out == nil {
+		fn(msg)
+	}
 }
 
 // CreateVM provisions a VM from the base cloud image using virt-install and
@@ -40,11 +60,11 @@ func CreateVM(cfg VMConfig) error {
 	}
 
 	if DomainExists(name) {
-		Skip(fmt.Sprintf("VM %s already exists", name))
+		cfg.vmLog(Skip, fmt.Sprintf("VM %s already exists", name))
 		return nil
 	}
 
-	if err := prepareCloudInit(userDataTpl, metaData, pubKeyFile, tmpUserData, seed, name); err != nil {
+	if err := prepareCloudInit(cfg, userDataTpl, metaData, pubKeyFile, tmpUserData, seed, name); err != nil {
 		return err
 	}
 	return installVM(cfg, name, seed)
@@ -131,7 +151,7 @@ func DHCPLeaseIP(network, mac string) string {
 	return ""
 }
 
-func prepareCloudInit(userDataTpl, metaData, pubKeyFile, tmpUserData, seed, name string) error {
+func prepareCloudInit(cfg VMConfig, userDataTpl, metaData, pubKeyFile, tmpUserData, seed, name string) error {
 	pubKey, err := os.ReadFile(pubKeyFile)
 	if err != nil {
 		return fmt.Errorf("read public key: %w", err)
@@ -144,10 +164,11 @@ func prepareCloudInit(userDataTpl, metaData, pubKeyFile, tmpUserData, seed, name
 	if err := os.WriteFile(tmpUserData, []byte(rendered), 0o600); err != nil {
 		return fmt.Errorf("write temp user-data: %w", err)
 	}
-	Info(fmt.Sprintf("Creating cloud-init ISO for %s", name))
+	cfg.vmLog(Info, fmt.Sprintf("Creating cloud-init ISO for %s", name))
+	out := cfg.vmOut()
 	cmd := exec.Command("cloud-localds", seed, tmpUserData, metaData)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = out
+	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
 		_ = os.Remove(tmpUserData)
 		return fmt.Errorf("cloud-localds: %w", err)
@@ -157,7 +178,8 @@ func prepareCloudInit(userDataTpl, metaData, pubKeyFile, tmpUserData, seed, name
 }
 
 func installVM(cfg VMConfig, name, seed string) error {
-	Info(fmt.Sprintf("Installing VM %s", name))
+	cfg.vmLog(Info, fmt.Sprintf("Installing VM %s", name))
+	out := cfg.vmOut()
 	cmd := exec.Command("virt-install",
 		"--connect", libvirtURI,
 		"--name", name,
@@ -171,12 +193,12 @@ func installVM(cfg VMConfig, name, seed string) error {
 		"--import",
 		"--noautoconsole",
 	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = out
+	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("virt-install: %w", err)
 	}
-	Ok(fmt.Sprintf("VM %s deployed", name))
+	cfg.vmLog(Ok, fmt.Sprintf("VM %s deployed", name))
 	return nil
 }
 

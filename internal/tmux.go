@@ -30,19 +30,20 @@ func LaunchTmux(stack, network string) error {
 	vmIP := make(map[string]string)
 	vmSSHReady := make(map[string]bool)
 
-	Info("Waiting for VMs to become ready...")
+	// Reserve N+1 lines for the readiness table (section header + column header + one per VM).
+	fmt.Println(dashSectionHeader("Waiting for VMs")[0])
+	fmt.Printf(dc(dDim+dBold, "  %-22s  %-12s  %-15s  %s\n"), "VM", "STATE", "IP", "SSH")
 	for range sshVMs {
 		fmt.Println()
 	}
-	fmt.Println()
 
 	if err := waitForVMsReady(stack, network, key, sshVMs, vmMAC, vmIP, vmSSHReady); err != nil {
 		return err
 	}
 
 	fmt.Println()
-	Ok("All VMs ready")
-	time.Sleep(time.Second)
+	Ok("All VMs ready — launching tmux session")
+	time.Sleep(500 * time.Millisecond)
 
 	return launchTmuxSession(session, stack, key, l, vmIP)
 }
@@ -51,7 +52,8 @@ func waitForVMsReady(stack, network, key string, sshVMs []string,
 	vmMAC, vmIP map[string]string, vmSSHReady map[string]bool,
 ) error {
 	elapsed := 0
-	vmCount := len(sshVMs)
+	// redrawLines is the number of VM rows to overwrite on each refresh tick.
+	redrawLines := len(sshVMs)
 
 	for {
 		allMACs := true
@@ -86,22 +88,22 @@ func waitForVMsReady(stack, network, key string, sshVMs []string,
 			}
 		}
 
-		fmt.Printf("\033[%dF", vmCount+1)
+		// Move cursor up to overwrite the VM rows.
+		fmt.Printf("\033[%dF", redrawLines)
 		for _, v := range sshVMs {
 			name := stack + "-" + v
 			state := DomainState(name)
-			sshStatus := "pending"
-			if vmSSHReady[v] {
-				sshStatus = "ready"
-			}
 			ipStr := vmIP[v]
 			if ipStr == "" {
-				ipStr = "pending"
+				ipStr = dc(dDim, "pending")
 			}
-			fmt.Printf("%-18s | state: %-12s | ip: %-15s | ssh: %-8s\n",
-				name, state, ipStr, sshStatus)
+			fmt.Printf("  %-22s  %-12s  %-15s  %s\033[K\n",
+				dc(dWhite, name),
+				stateBadge(state),
+				ipStr,
+				sshBadge(vmSSHReady[v]),
+			)
 		}
-		fmt.Println()
 
 		allReady := true
 		for _, v := range sshVMs {
