@@ -37,17 +37,17 @@ make build        # or: go build -o nlab ./cmd/nlab
 ./nlab image download
 
 # 3. Bring up the "basic" stack (attacker + target)
-./nlab up basic
+make up           # or: ./nlab up basic
 
 # 4. Tear everything down when finished
-./nlab down basic
+make down         # or: ./nlab down basic
 ```
 
 To use the **template** stack instead:
 
 ```bash
-./nlab up template    # bring up template stack
-./nlab down template  # tear it down
+make up STACK=template    # bring up template stack
+make down STACK=template  # tear it down
 ```
 
 `nlab up basic` will:

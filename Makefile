@@ -1,6 +1,8 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build test list
+STACK ?= basic
+
+.PHONY: help build test up down list
 
 help: ## Show this help message
 	@echo ""
@@ -17,5 +19,11 @@ build: ## Build the nlab binary
 test: ## Run Go tests
 	go test ./...
 
+up: ## Bring up a stack (STACK=<name>, default: basic)
+	./nlab up $(STACK)
+
+down: ## Tear down a stack (STACK=<name>, default: basic)
+	./nlab down $(STACK)
+
 list: ## List all libvirt domains
-	virsh list --all
+	./nlab list
