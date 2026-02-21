@@ -4,6 +4,7 @@
 //
 //	nlab version                     – print the nlab version
 //	nlab doctor                      – check host prerequisites
+//	nlab validate -f <file>          – validate a v1alpha1 stack manifest
 //	nlab image download              – download the Ubuntu 22.04 base cloud image
 //	nlab key generate <stack>        – generate a per-stack ed25519 SSH key pair
 //	nlab network create <stack>      – define and start the libvirt network
@@ -26,6 +27,7 @@ import (
 	"github.com/spf13/cobra"
 
 	lab "github.com/h3ow3d/nlab/internal"
+	"github.com/h3ow3d/nlab/internal/manifest"
 )
 
 // Version is the nlab release string. Override at build time with:
@@ -51,6 +53,7 @@ Quick start:
 	root.AddCommand(
 		versionCmd(),
 		doctorCmd(),
+		validateCmd(),
 		imageCmd(),
 		keyCmd(),
 		networkCmd(),
@@ -119,6 +122,38 @@ Exits with a non-zero status if any critical prerequisite is missing.`,
 			return nil
 		},
 	}
+}
+
+// ── validate ──────────────────────────────────────────────────────────────────
+
+func validateCmd() *cobra.Command {
+	var file string
+	cmd := &cobra.Command{
+		Use:          "validate",
+		Short:        "Validate a v1alpha1 stack manifest",
+		SilenceUsage: true,
+		Long: `Parses and validates a stack manifest against the nlab.io/v1alpha1 schema.
+
+Checks performed:
+  • apiVersion and kind are present and correct
+  • metadata.name is set
+  • spec.networks and spec.vms are non-empty
+  • Each network and VM has a non-empty xml field
+  • All xml fields are well-formed XML`,
+		Example: "  nlab validate -f stack.yaml",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if file == "" {
+				return fmt.Errorf("flag -f / --file is required")
+			}
+			if _, err := manifest.Load(file); err != nil {
+				return err
+			}
+			fmt.Printf("manifest %q is valid\n", file)
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&file, "file", "f", "", "Path to the stack manifest YAML file")
+	return cmd
 }
 
 // ── image ─────────────────────────────────────────────────────────────────────
