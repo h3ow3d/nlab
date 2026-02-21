@@ -32,7 +32,6 @@ const dashMaxEvents = 8
 const dashWidth = 78
 
 func dc(color, s string) string { return color + s + dReset }
-func db(s string) string        { return dBold + s + dReset }
 
 // ── Public entry point ────────────────────────────────────────────────────────
 

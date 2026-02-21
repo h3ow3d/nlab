@@ -2,12 +2,18 @@ version: "2"
 
 linters:
   enable:
-    - gofmt
     - govet
     - errcheck
     - staticcheck
-    - unused
-    - gosimple
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+
+formatters:
+  enable:
+    - gofmt
 
 issues:
   max-issues-per-linter: 0
