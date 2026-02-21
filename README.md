@@ -31,7 +31,7 @@ sudo usermod -aG libvirt,kvm "$USER"   # log out and back in
 
 ```bash
 # 1. Build the nlab CLI (one-time)
-go build -o nlab ./cmd/nlab
+make build        # or: go build -o nlab ./cmd/nlab
 
 # 2. Download the Ubuntu base image (one-time)
 ./nlab image download
@@ -61,21 +61,19 @@ To use the **template** stack instead:
 
 ## Command Reference
 
-Every bash script in the repo has a direct `nlab` equivalent:
-
-| Command | Replaces |
+| Command | Description |
 |---|---|
-| `nlab image download` | `./images/download_base.sh` |
-| `nlab key generate <stack>` | `./scripts/generate-key.sh <stack>` |
-| `nlab network create <stack>` | `./scripts/create-network.sh ...` |
-| `nlab network destroy <stack>` | `./scripts/destroy-network.sh <network>` |
-| `nlab vm create <stack> <role>` | `./scripts/create-vm.sh ...` |
-| `nlab vm destroy <stack> <role>` | `./scripts/destroy-vm.sh <stack> <role>` |
-| `nlab session <stack>` | `./scripts/launch-tmux.sh <stack> <network>` |
-| `nlab dashboard <stack>` | `./scripts/create-dashboard.sh <stack> <network>` |
-| `nlab up <stack>` | `make <stack>` |
-| `nlab down <stack>` | `make <stack>-destroy` |
-| `nlab list` | `make list` |
+| `nlab image download` | Download the Ubuntu 22.04 base cloud image |
+| `nlab key generate <stack>` | Generate a per-stack ed25519 SSH key pair |
+| `nlab network create <stack>` | Define and start the libvirt network |
+| `nlab network destroy <stack>` | Stop and undefine the libvirt network |
+| `nlab vm create <stack> <role>` | Provision a single VM |
+| `nlab vm destroy <stack> <role>` | Destroy a single VM and remove its storage |
+| `nlab session <stack>` | Wait for SSH readiness then open tmux session |
+| `nlab dashboard <stack>` | Show the live creation dashboard |
+| `nlab up <stack>` | Full stack bring-up (key + net + VMs + session) |
+| `nlab down <stack>` | Full stack tear-down |
+| `nlab list` | List all libvirt domains |
 
 Use `nlab <command> --help` for detailed usage and examples.
 
@@ -98,12 +96,6 @@ nlab network destroy basic
 # Override VM specs at creation time
 nlab vm create basic attacker --memory 8192 --vcpus 4
 ```
-
-### Legacy Make Targets
-
-The original `make basic` / `make basic-destroy` targets still work and continue
-to call the shell scripts in `scripts/`. The Go CLI is the recommended interface
-going forward.
 
 ### tmux Layout
 
@@ -148,30 +140,19 @@ nlab/
 │   └── nlab/
 │       └── main.go               # nlab CLI entry point (cobra subcommands)
 ├── internal/
-│   ├── dashboard/dashboard.go    # Live creation dashboard
-│   ├── image/download.go         # Base image download + checksum
-│   ├── keys/keys.go              # Per-stack ed25519 key generation
-│   ├── layout/layout.go          # layout.yaml parser
-│   ├── log/log.go                # Shared logging helpers
-│   ├── network/network.go        # libvirt network create / destroy
-│   ├── stack/stack.go            # stack.yaml parser
-│   ├── tmux/tmux.go              # tmux session launcher
-│   └── vm/vm.go                  # VM create / destroy (virt-install / virsh)
-├── images/
-│   └── download_base.sh          # Legacy bash image downloader (still works)
+│   ├── dashboard.go              # Live creation dashboard
+│   ├── image.go                  # Base image download + checksum
+│   ├── keys.go                   # Per-stack ed25519 key generation
+│   ├── layout.go                 # layout.yaml parser
+│   ├── log.go                    # Shared logging helpers
+│   ├── network.go                # libvirt network create / destroy
+│   ├── stack.go                  # stack.yaml parser
+│   ├── tmux.go                   # tmux session launcher
+│   └── vm.go                     # VM create / destroy (virt-install / virsh)
 ├── keys/                         # Per-stack SSH key pairs (git-ignored)
-├── scripts/
-│   ├── lib.sh                    # Shared helpers (LIBVIRT_DEFAULT_URI, log_*)
-│   ├── create-network.sh         # Define & start a libvirt network
-│   ├── create-vm.sh              # Provision a VM from the base image
-│   ├── destroy-network.sh        # Stop & undefine a libvirt network
-│   ├── destroy-vm.sh             # Destroy a VM and remove its storage
-│   ├── generate-key.sh           # Generate a per-stack ed25519 key pair
-│   └── launch-tmux.sh            # Wait for VMs then open tmux session
 └── stacks/
     ├── basic/
-    │   ├── stack.yaml             # Stack config: network + VM specs for nlab CLI
-    │   ├── stack.mk               # Make targets: basic / basic-destroy (legacy)
+    │   ├── stack.yaml             # Stack config: network + VM specs
     │   ├── network.xml            # Libvirt network definition
     │   ├── layout.yaml            # tmux pane layout definition
     │   ├── attacker/
@@ -181,8 +162,7 @@ nlab/
     │       ├── meta-data
     │       └── user-data
     └── template/
-        ├── stack.yaml             # Stack config: network + VM specs for nlab CLI
-        ├── stack.mk               # Make targets: template / template-destroy (legacy)
+        ├── stack.yaml             # Stack config: network + VM specs
         ├── network.xml            # Libvirt network definition (10.10.20.0/24)
         ├── layout.yaml            # tmux pane layout definition
         ├── attacker/
