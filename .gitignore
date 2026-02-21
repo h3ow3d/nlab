@@ -11,3 +11,6 @@ keys/*
 # Temp files
 *.swp
 *.tmp
+
+# Go build output
+/nlab
