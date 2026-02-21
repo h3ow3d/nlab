@@ -1,0 +1,8 @@
+network: template_net
+vms:
+  - name: attacker
+    memory: 4096
+    vcpus: 2
+  - name: target
+    memory: 2048
+    vcpus: 2
