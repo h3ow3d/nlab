@@ -2,6 +2,8 @@
 //
 // Command tree:
 //
+//	nlab version                     – print the nlab version
+//	nlab doctor                      – check host prerequisites
 //	nlab image download              – download the Ubuntu 22.04 base cloud image
 //	nlab key generate <stack>        – generate a per-stack ed25519 SSH key pair
 //	nlab network create <stack>      – define and start the libvirt network
@@ -26,6 +28,11 @@ import (
 	lab "github.com/h3ow3d/nlab/internal"
 )
 
+// Version is the nlab release string. Override at build time with:
+//
+//	go build -ldflags "-X main.Version=v1.2.3" ./cmd/nlab
+var Version = "dev"
+
 func main() {
 	root := &cobra.Command{
 		Use:   "nlab",
@@ -42,6 +49,8 @@ Quick start:
 	}
 
 	root.AddCommand(
+		versionCmd(),
+		doctorCmd(),
 		imageCmd(),
 		keyCmd(),
 		networkCmd(),
@@ -55,6 +64,60 @@ Quick start:
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
+	}
+}
+
+// ── version ───────────────────────────────────────────────────────────────────
+
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the nlab version",
+		Run: func(_ *cobra.Command, _ []string) {
+			fmt.Println("nlab", Version)
+		},
+	}
+}
+
+// ── doctor ────────────────────────────────────────────────────────────────────
+
+func doctorCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:          "doctor",
+		Short:        "Check host prerequisites for nlab",
+		SilenceUsage: true,
+		Long: `Verifies that all required tools and system features are present:
+
+  • virsh / libvirt connectivity (local qemu:///system)
+  • qemu/kvm availability (/dev/kvm)
+  • tmux
+  • tcpdump
+  • write access to XDG config / data / state directories
+
+Exits with a non-zero status if any critical prerequisite is missing.`,
+		Example: "  nlab doctor",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			dirs := lab.DefaultXDGDirs()
+			results := lab.RunDoctorChecks(dirs)
+
+			allOK := true
+			for _, r := range results {
+				if r.OK {
+					lab.Ok(r.Name + ": " + r.Message)
+				} else {
+					allOK = false
+					lab.Error(r.Name + ": " + r.Message)
+					if r.HowToFix != "" {
+						fmt.Fprintf(os.Stderr, "     Fix: %s\n", r.HowToFix)
+					}
+				}
+			}
+
+			if !allOK {
+				return fmt.Errorf("one or more prerequisites are missing; see above for details")
+			}
+			return nil
+		},
 	}
 }
 
