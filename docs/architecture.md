@@ -109,4 +109,177 @@ flowchart LR
 cmd/nlab/                      # main entrypoint
 internal/manifest/             # YAML stack parsing + validation
 internal/types/                # typed model: StackSpec, NetworkSpec, VMSpec, tmux spec, etc.
-intern...
+internal/engine/               # orchestration (apply/delete/get/status)
+internal/provider/libvirt/     # virsh runner + XML patching + discovery
+internal/storage/              # base image cache, overlays, paths, purge behavior
+internal/cloudinit/            # cloud-init generation + seed ISO creation
+internal/cli/                  # command wiring + printers (optional split)
+internal/tui/                  # bubbletea UI (later, shells out to CLI)
+docs/
+```
+
+---
+
+## Filesystem integration (single-user, Ubuntu, XDG)
+
+Defaults (overridable):
+- **Binary:** `~/.local/bin/nlab`
+- **Config:** `~/.config/nlab/config.yaml`
+- **Data:** `~/.local/share/nlab/`
+  - base images cache: `~/.local/share/nlab/images/`
+  - stacks library (optional): `~/.local/share/nlab/stacks/`
+  - generated cloud-init seeds: `~/.local/share/nlab/cloudinit/`
+- **State:** `~/.local/state/nlab/`
+  - logs: `~/.local/state/nlab/logs/`
+  - captures: `~/.local/state/nlab/pcap/`
+
+---
+
+## Manifest format (v1alpha1, single file)
+
+### Shape (golden path)
+A single YAML document, Kubernetes-inspired header, plus top-level keys:
+
+- `apiVersion: nlab.io/v1alpha1`
+- `kind: Stack`
+- `metadata: { name, labels, annotations }`
+- `spec:`
+  - `networks:` map (name → network spec)
+  - `vms:` map (name → vm spec)
+  - `storage:` settings (base images, overlays, locations)
+  - `tmux:` layout spec
+  - `defaults:` convenience defaults
+
+### VM + Network XML embedding
+- `spec.networks.<name>.xml: |` (libvirt network XML)
+- `spec.vms.<name>.xml: |` (libvirt domain XML)
+
+nlab may patch/augment XML to insert:
+- ownership markers
+- cloud-init disk attachment
+- qemu-guest-agent channel device (where appropriate)
+
+**Important:** nlab should keep the resulting XML discoverable:
+- `nlab vm dumpxml <vm>` should show effective XML
+- and/or store generated XML under state for debugging.
+
+---
+
+## Ownership markers (safety)
+
+nlab must mark managed libvirt resources, e.g. in `<description>`:
+
+- `nlab.io/managed=true`
+- `nlab.io/stack=<stackName>`
+- `nlab.io/resource=vm|network`
+- `nlab.io/name=<resourceName>`
+- `nlab.io/manifest-hash=<sha256>` (optional)
+
+Delete rules:
+- `nlab delete -f stack.yaml` deletes managed resources for that stack.
+- `--purge` additionally removes overlays and stack-managed volumes/images.
+- Refuse to delete unmarked resources unless `--force`.
+
+---
+
+## Storage (batteries included)
+
+### Baseline behavior
+- nlab manages a directory-backed storage model under XDG data/state.
+- For each VM, nlab can create an overlay qcow2 referencing a base image.
+
+### Custom images
+Users can customize images by:
+- specifying an image source in the stack manifest (URL/path/name), OR
+- placing images in the cache directory and referencing by name.
+
+### Purge semantics
+- Default delete: remove libvirt definitions/resources; keep cached base images.
+- `--purge`: remove VM overlays and stack-associated artifacts (pcaps optional).
+
+---
+
+## Cloud-init + qemu-guest-agent
+
+### Assumptions
+- Primary supported VM source: Ubuntu-compatible cloud images.
+
+### Behavior
+- nlab generates per-VM cloud-init user-data/meta-data (or per-stack defaults).
+- nlab builds a seed ISO (or equivalent) and attaches it to the VM.
+- nlab attempts to ensure `qemu-guest-agent` is installed/enabled on supported images.
+
+Graceful degradation:
+- If guest agent isn’t available, nlab still functions; IP discovery and richer status may be limited.
+
+---
+
+## tmux integration (manifest-driven)
+
+### Intent
+`nlab stack tmux <stack>` creates/attaches `tmux` session `nlab:<stack>`.
+
+### Manifest control
+The stack manifest defines either:
+- a preset layout + options (recommended for v1), and/or
+- a declarative layout (later).
+
+v1 recommended approach:
+- `spec.tmux.preset: default|grid|wide`
+- `spec.tmux.windows:` optional overrides (commands per pane)
+
+---
+
+## tcpdump integration
+
+### Default hotkey behavior
+- `P` in TUI starts **live view**.
+- Users can toggle “stream to file” / pcap output (CLI flag or TUI toggle later).
+
+### Privilege model goal
+- One-time setup on Ubuntu to avoid recurring sudo prompts.
+- Documented and as safe as possible:
+  - prefer a guided setup command (e.g. `nlab setup`) that configures the chosen model.
+
+---
+
+## CLI (minimum surface)
+
+### Manifest lifecycle
+- `nlab validate -f stack.yaml`
+- `nlab apply -f stack.yaml`
+- `nlab delete -f stack.yaml [--purge] [--force]`
+
+### Ops (TUI consumes these via --json)
+- `nlab stack ls --json`
+- `nlab stack status <stack> --json`
+- `nlab stack up|down|restart <stack>`
+- `nlab vm ls --stack <stack> --json`
+- `nlab vm start|stop|reboot <vm>`
+- `nlab vm console <vm>`
+
+### Observability
+- `nlab logs vm <vm> [--follow]`
+- `nlab stack tmux <stack>`
+- `nlab stack tcpdump <stack> [--network <name>] [--filter ...] [--pcap ...]`
+
+---
+
+## JSON output contract (for TUI)
+
+All JSON responses consumed by the TUI MUST include:
+- `apiVersion` (e.g. `nlab.io/v1alpha1`)
+- `kind` (e.g. `StackList`, `StackStatus`, `VMList`)
+- `generatedAt` (RFC3339 recommended)
+- `errors` array recommended (empty on success)
+
+TUI must only depend on these JSON outputs (not human output).
+
+---
+
+## Future scope (explicitly deferred)
+
+- Remote libvirt URIs (`qemu+ssh://...`)
+- Multi-file manifest bundles as first-class UX
+- YAML-native VM/network spec that renders to XML
+- Multi-user mode
