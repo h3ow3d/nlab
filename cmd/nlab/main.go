@@ -4,7 +4,7 @@
 //
 //	nlab version                     – print the nlab version
 //	nlab doctor                      – check host prerequisites
-//	nlab validate -f <file>          – validate a v1alpha1 stack manifest
+//	nlab validate [<stack>|-f <file>] – validate a v1alpha1 stack manifest
 //	nlab image download              – download the Ubuntu 22.04 base cloud image
 //	nlab key generate <stack>        – generate a per-stack ed25519 SSH key pair
 //	nlab network create <stack>      – define and start the libvirt network
@@ -124,15 +124,20 @@ Exits with a non-zero status if any critical prerequisite is missing.`,
 	}
 }
 
-// ── validate ──────────────────────────────────────────────────────────────────
+// ── validate ─────────────────────────────────────────────────────────────────────────
 
 func validateCmd() *cobra.Command {
 	var file string
 	cmd := &cobra.Command{
-		Use:          "validate",
+		Use:          "validate [<stack> | -f <file>]",
 		Short:        "Validate a v1alpha1 stack manifest",
 		SilenceUsage: true,
 		Long: `Parses and validates a stack manifest against the nlab.io/v1alpha1 schema.
+
+Supply either a stack name or an explicit file path:
+
+  nlab validate basic              reads stacks/basic/stack.yaml
+  nlab validate -f /my/stack.yaml  reads the given file directly
 
 Checks performed:
   • apiVersion and kind are present and correct
@@ -140,19 +145,30 @@ Checks performed:
   • spec.networks and spec.vms are non-empty
   • Each network and VM has a non-empty xml field
   • All xml fields are well-formed XML`,
-		Example: "  nlab validate -f stack.yaml",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if file == "" {
-				return fmt.Errorf("flag -f / --file is required")
+		Example: "  nlab validate basic\n  nlab validate -f stacks/basic/stack.yaml",
+		Args:    cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			path := file
+			if path == "" {
+				if len(args) == 0 {
+					return fmt.Errorf("provide a stack name (e.g. nlab validate basic) or use -f <file>")
+				}
+				// Prefer the v1alpha1 manifest if present, otherwise use stack.yaml.
+				v1path := fmt.Sprintf("stacks/%s/stack.v1alpha1.yaml", args[0])
+				if _, statErr := os.Stat(v1path); statErr == nil {
+					path = v1path
+				} else {
+					path = fmt.Sprintf("stacks/%s/stack.yaml", args[0])
+				}
 			}
-			if _, err := manifest.Load(file); err != nil {
+			if _, err := manifest.Load(path); err != nil {
 				return err
 			}
-			fmt.Printf("manifest %q is valid\n", file)
+			fmt.Printf("manifest %q is valid\n", path)
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&file, "file", "f", "", "Path to the stack manifest YAML file")
+	cmd.Flags().StringVarP(&file, "file", "f", "", "Path to the stack manifest YAML file (overrides stack name)")
 	return cmd
 }
 
