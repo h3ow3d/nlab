@@ -357,8 +357,8 @@ func runUp(stackName string) error {
 	}
 
 	vmWg.Wait()
-	close(done)     // signal dashboard to stop
-	dashWg.Wait()   // wait until dashboard goroutine has fully exited
+	close(done)   // signal dashboard to stop
+	dashWg.Wait() // wait until dashboard goroutine has fully exited
 
 	close(errs)
 	for e := range errs {
@@ -427,4 +427,3 @@ Replaces: make list`,
 		},
 	}
 }
-

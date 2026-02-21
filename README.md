@@ -175,6 +175,43 @@ nlab/
 
 ---
 
+## Development
+
+### Running lint and tests locally
+
+Install [golangci-lint](https://golangci-lint.run/welcome/install/) and
+[pre-commit](https://pre-commit.com/#install), then:
+
+```bash
+# Format code
+make fmt
+
+# Run linter (requires golangci-lint on $PATH)
+make lint
+
+# Run tests
+make test
+```
+
+#### pre-commit hooks
+
+Install the pre-commit hooks once per clone so that `gofmt`, `govet`, and
+`golangci-lint` run automatically before every commit:
+
+```bash
+pip install pre-commit   # or: brew install pre-commit
+pre-commit install
+```
+
+After that, every `git commit` will automatically run the configured hooks.
+You can also run all hooks manually at any time:
+
+```bash
+pre-commit run --all-files
+```
+
+---
+
 ## Adding a New Stack
 
 1. Create `stacks/<name>/` with:

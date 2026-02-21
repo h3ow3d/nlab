@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build test
+.PHONY: help build test lint fmt
 
 help: ## Show this help message
 	@echo ""
@@ -13,6 +13,12 @@ help: ## Show this help message
 
 build: ## Build the nlab binary
 	go build -o nlab ./cmd/nlab
+
+lint: ## Run golangci-lint
+	golangci-lint run ./...
+
+fmt: ## Format Go source files
+	gofmt -w ./...
 
 test: ## Run Go tests
 	go test ./...
