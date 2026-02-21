@@ -1,0 +1,14 @@
+version: "2"
+
+linters:
+  enable:
+    - gofmt
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
