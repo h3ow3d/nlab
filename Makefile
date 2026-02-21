@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build test lint fmt
+.PHONY: help build install test lint fmt
 
 help: ## Show this help message
 	@echo ""
@@ -13,6 +13,22 @@ help: ## Show this help message
 
 build: ## Build the nlab binary
 	go build -o nlab ./cmd/nlab
+
+install: ## Install nlab to ~/.local/bin (adds to PATH if needed)
+	@mkdir -p "$(HOME)/.local/bin"
+	go build -o "$(HOME)/.local/bin/nlab" ./cmd/nlab
+	@echo ""
+	@echo "nlab installed to $(HOME)/.local/bin/nlab"
+	@echo ""
+	@if ! echo "$$PATH" | grep -q "$(HOME)/.local/bin"; then \
+		echo "  NOTE: $(HOME)/.local/bin is not in your PATH."; \
+		echo "  Add the following line to your shell profile (~/.bashrc or ~/.zshrc):"; \
+		echo "    export PATH=\"\$$HOME/.local/bin:\$$PATH\""; \
+		echo "  Then restart your shell or run:"; \
+		echo "    source ~/.bashrc"; \
+		echo ""; \
+	fi
+	@echo "Run 'nlab doctor' to verify prerequisites."
 
 lint: ## Run golangci-lint
 	golangci-lint run ./...

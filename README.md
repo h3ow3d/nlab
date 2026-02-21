@@ -15,14 +15,35 @@ offensive techniques in a self-contained environment.
 | `virt-install` | VM provisioning tool |
 | `cloud-localds` | Builds cloud-init seed ISOs (`cloud-image-utils` package) |
 | `tmux` | Terminal multiplexer used by the launch script |
+| `tcpdump` | Packet capture for network monitoring |
 | `ssh` / `ssh-keygen` | Key-based access to VMs |
 | Go ≥ 1.21 | Build the `nlab` binary (not needed at runtime) |
 
-Install on Ubuntu / Debian:
+Install on Ubuntu:
 
 ```bash
-sudo apt install qemu-kvm libvirt-daemon-system virtinst cloud-image-utils tmux
+sudo apt install qemu-kvm libvirt-daemon-system libvirt-clients virtinst \
+    cloud-image-utils tmux tcpdump
 sudo usermod -aG libvirt,kvm "$USER"   # log out and back in
+```
+
+See [docs/install.md](docs/install.md) for the full installation guide,
+filesystem layout, and troubleshooting tips.
+
+---
+
+## Install
+
+```bash
+# Clone and install nlab to ~/.local/bin
+git clone https://github.com/h3ow3d/nlab.git
+cd nlab
+make install
+
+# Add ~/.local/bin to PATH if needed (follow the hint printed by make install)
+# Then verify the install:
+nlab version
+nlab doctor
 ```
 
 ---
@@ -30,24 +51,24 @@ sudo usermod -aG libvirt,kvm "$USER"   # log out and back in
 ## Quick Start
 
 ```bash
-# 1. Build the nlab CLI (one-time)
+# 1. Install nlab (see above) or build locally
 make build        # or: go build -o nlab ./cmd/nlab
 
 # 2. Download the Ubuntu base image (one-time)
-./nlab image download
+nlab image download
 
 # 3. Bring up the "basic" stack (attacker + target)
-./nlab up basic
+nlab up basic
 
 # 4. Tear everything down when finished
-./nlab down basic
+nlab down basic
 ```
 
 To use the **template** stack instead:
 
 ```bash
-./nlab up template    # bring up template stack
-./nlab down template  # tear it down
+nlab up template    # bring up template stack
+nlab down template  # tear it down
 ```
 
 `nlab up basic` will:
@@ -63,6 +84,8 @@ To use the **template** stack instead:
 
 | Command | Description |
 |---|---|
+| `nlab version` | Print the nlab version |
+| `nlab doctor` | Check host prerequisites (virsh, kvm, tmux, tcpdump, XDG dirs) |
 | `nlab image download` | Download the Ubuntu 22.04 base cloud image |
 | `nlab key generate <stack>` | Generate a per-stack ed25519 SSH key pair |
 | `nlab network create <stack>` | Define and start the libvirt network |
