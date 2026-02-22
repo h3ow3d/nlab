@@ -5,6 +5,9 @@
 //	nlab version                     – print the nlab version
 //	nlab doctor                      – check host prerequisites
 //	nlab validate [<stack>|-f <file>] – validate a v1alpha1 stack manifest
+//	nlab apply   -f <file>           – apply a stack manifest (engine)
+//	nlab delete  -f <file>           – delete stack resources (engine)
+//	nlab get     -f <file>           – show stack resource status (engine)
 //	nlab image download              – download the Ubuntu 22.04 base cloud image
 //	nlab key generate <stack>        – generate a per-stack ed25519 SSH key pair
 //	nlab network create <stack>      – define and start the libvirt network
@@ -27,7 +30,9 @@ import (
 	"github.com/spf13/cobra"
 
 	lab "github.com/h3ow3d/nlab/internal"
+	"github.com/h3ow3d/nlab/internal/engine"
 	"github.com/h3ow3d/nlab/internal/manifest"
+	libvirtprovider "github.com/h3ow3d/nlab/internal/provider/libvirt"
 )
 
 // Version is the nlab release string. Override at build time with:
@@ -54,6 +59,9 @@ Quick start:
 		versionCmd(),
 		doctorCmd(),
 		validateCmd(),
+		applyCmd(),
+		deleteCmd(),
+		getCmd(),
 		imageCmd(),
 		keyCmd(),
 		networkCmd(),
@@ -164,6 +172,119 @@ Checks performed:
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "Path to the stack manifest YAML file (overrides stack name)")
+	return cmd
+}
+
+// ── apply ─────────────────────────────────────────────────────────────────────
+
+func applyCmd() *cobra.Command {
+	var file string
+	cmd := &cobra.Command{
+		Use:          "apply -f <file>",
+		Short:        "Apply a stack manifest to the local libvirt host",
+		SilenceUsage: true,
+		Long: `Reads a v1alpha1 stack manifest and deterministically applies every
+network and VM resource to the local libvirt host.
+
+Apply is idempotent: resources that already exist and are managed by this
+stack are left untouched (or started if inactive).  Resources that exist but
+are not managed by nlab, or are owned by a different stack, cause an error.
+
+Ownership markers are injected into the libvirt <description> element of each
+resource so that subsequent apply/delete operations can identify them safely.`,
+		Example: "  nlab apply -f stacks/basic/stack.yaml",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if file == "" {
+				return fmt.Errorf("flag -f / --file is required")
+			}
+			m, err := manifest.Load(file)
+			if err != nil {
+				return err
+			}
+			eng := engine.New(libvirtprovider.New())
+			return eng.Apply(m)
+		},
+	}
+	cmd.Flags().StringVarP(&file, "file", "f", "", "Path to the stack manifest YAML file")
+	return cmd
+}
+
+// ── delete ────────────────────────────────────────────────────────────────────
+
+func deleteCmd() *cobra.Command {
+	var file string
+	var force, purge bool
+	cmd := &cobra.Command{
+		Use:          "delete -f <file> [--purge] [--force]",
+		Short:        "Delete stack resources defined in a manifest",
+		SilenceUsage: true,
+		Long: `Reads a v1alpha1 stack manifest and removes every network and VM resource
+from the local libvirt host.
+
+Safety rules:
+  • Resources owned by a *different* stack are never deleted.
+  • Resources with no nlab ownership markers are refused unless --force.
+  • --purge additionally removes overlay disks and stack-associated volumes.`,
+		Example: "  nlab delete -f stacks/basic/stack.yaml\n  nlab delete -f stacks/basic/stack.yaml --purge",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if file == "" {
+				return fmt.Errorf("flag -f / --file is required")
+			}
+			m, err := manifest.Load(file)
+			if err != nil {
+				return err
+			}
+			eng := engine.New(libvirtprovider.New())
+			return eng.Delete(m, engine.DeleteOptions{Force: force, Purge: purge})
+		},
+	}
+	cmd.Flags().StringVarP(&file, "file", "f", "", "Path to the stack manifest YAML file")
+	cmd.Flags().BoolVar(&force, "force", false, "Delete resources even if they have no nlab ownership markers")
+	cmd.Flags().BoolVar(&purge, "purge", false, "Remove overlay disks and stack-associated volumes")
+	return cmd
+}
+
+// ── get ───────────────────────────────────────────────────────────────────────
+
+func getCmd() *cobra.Command {
+	var file string
+	cmd := &cobra.Command{
+		Use:          "get -f <file>",
+		Short:        "Show the status of stack resources defined in a manifest",
+		SilenceUsage: true,
+		Long: `Reads a v1alpha1 stack manifest and reports the current state of every
+network and VM resource on the local libvirt host.
+
+This is a read-only diagnostic operation; it never modifies any state.`,
+		Example: "  nlab get -f stacks/basic/stack.yaml",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if file == "" {
+				return fmt.Errorf("flag -f / --file is required")
+			}
+			m, err := manifest.Load(file)
+			if err != nil {
+				return err
+			}
+			eng := engine.New(libvirtprovider.New())
+			infos, err := eng.Get(m)
+			if err != nil {
+				return err
+			}
+			for _, info := range infos {
+				state := info.State
+				if !info.Defined {
+					state = "not found"
+				}
+				managed := "unmanaged"
+				if info.Managed {
+					managed = fmt.Sprintf("managed (stack=%s)", info.Stack)
+				}
+				fmt.Printf("%-8s %-20s %-12s %s\n", info.Kind, info.Domain, state, managed)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&file, "file", "f", "", "Path to the stack manifest YAML file")
 	return cmd
 }
 
