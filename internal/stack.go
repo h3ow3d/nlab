@@ -11,8 +11,9 @@ import (
 
 // StackConfig is the top-level structure of a stacks/<name>/stack.yaml file.
 type StackConfig struct {
-	Network string   `yaml:"network"`
-	VMs     []VMSpec `yaml:"vms"`
+	Network    string   `yaml:"network"`
+	NetworkXML string   `yaml:"-"` // populated from v1alpha1 spec.networks.<name>.xml
+	VMs        []VMSpec `yaml:"vms"`
 }
 
 // VMSpec describes one VM within a stack.
@@ -87,13 +88,14 @@ func loadStackV1alpha1(data []byte, path string) (*StackConfig, error) {
 	}
 
 	// Use the first (typically only) network name as the network identifier.
-	var networkName string
-	for name := range raw.Spec.Networks {
+	var networkName, networkXML string
+	for name, net := range raw.Spec.Networks {
 		networkName = name
+		networkXML = net.XML
 		break
 	}
 
-	cfg := &StackConfig{Network: networkName}
+	cfg := &StackConfig{Network: networkName, NetworkXML: networkXML}
 
 	for name, vm := range raw.Spec.VMs {
 		spec := VMSpec{Name: name}

@@ -6,17 +6,29 @@ import (
 	"strings"
 )
 
-// CreateNetwork defines and starts a libvirt network from an XML file.
-func CreateNetwork(xmlPath, networkName string) error {
-	if _, err := os.Stat(xmlPath); err != nil {
-		return fmt.Errorf("network XML not found: %s", xmlPath)
+// CreateNetwork defines and starts a libvirt network from an XML string.
+// It writes the XML to a temporary file, calls virsh net-define, then removes
+// the temporary file.
+func CreateNetwork(networkXML, networkName string) error {
+	// Write XML to a temp file for virsh net-define.
+	tmp, err := os.CreateTemp("", "nlab-net-*.xml")
+	if err != nil {
+		return fmt.Errorf("create temp network XML: %w", err)
 	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.WriteString(networkXML); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write temp network XML: %w", err)
+	}
+	tmp.Close()
 
 	if networkDefined(networkName) {
 		Skip(fmt.Sprintf("Network %s already defined", networkName))
 	} else {
 		Info(fmt.Sprintf("Defining network %s", networkName))
-		if err := virsh("net-define", xmlPath); err != nil {
+		if err := virsh("net-define", tmpPath); err != nil {
 			return fmt.Errorf("net-define: %w", err)
 		}
 	}

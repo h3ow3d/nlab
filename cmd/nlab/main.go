@@ -222,8 +222,8 @@ func networkCmd() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "create <stack>",
 		Short: "Define and start the libvirt network for a stack",
-		Long: `Reads stacks/<stack>/network.xml and stacks/<stack>/stack.yaml, then
-defines, starts, and sets the network to autostart in libvirt.
+		Long: `Reads stacks/<stack>/stack.yaml, then defines, starts, and sets the
+network to autostart in libvirt using the XML embedded in the manifest.
 
 Replaces: ./scripts/create-network.sh stacks/<stack>/network.xml <network> <stack>`,
 		Example: "  nlab network create basic",
@@ -234,7 +234,7 @@ Replaces: ./scripts/create-network.sh stacks/<stack>/network.xml <network> <stac
 			if err != nil {
 				return err
 			}
-			return lab.CreateNetwork(fmt.Sprintf("stacks/%s/network.xml", stackName), cfg.Network)
+			return lab.CreateNetwork(cfg.NetworkXML, cfg.Network)
 		},
 	})
 
@@ -421,7 +421,7 @@ func runUp(stackName string) error {
 		return err
 	}
 
-	if err := lab.CreateNetwork(fmt.Sprintf("stacks/%s/network.xml", stackName), cfg.Network); err != nil {
+	if err := lab.CreateNetwork(cfg.NetworkXML, cfg.Network); err != nil {
 		return err
 	}
 
