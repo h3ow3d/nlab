@@ -153,13 +153,7 @@ Checks performed:
 				if len(args) == 0 {
 					return fmt.Errorf("provide a stack name (e.g. nlab validate basic) or use -f <file>")
 				}
-				// Prefer the v1alpha1 manifest if present, otherwise use stack.yaml.
-				v1path := fmt.Sprintf("stacks/%s/stack.v1alpha1.yaml", args[0])
-				if _, statErr := os.Stat(v1path); statErr == nil {
-					path = v1path
-				} else {
-					path = fmt.Sprintf("stacks/%s/stack.yaml", args[0])
-				}
+				path = fmt.Sprintf("stacks/%s/stack.yaml", args[0])
 			}
 			if _, err := manifest.Load(path); err != nil {
 				return err
