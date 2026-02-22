@@ -18,11 +18,11 @@ type ObjectMeta struct {
 
 // StackSpec is the spec section of a StackManifest.
 type StackSpec struct {
-	Networks map[string]NetworkSpec         `yaml:"networks"`
-	VMs      map[string]VMSpec              `yaml:"vms"`
-	Storage  map[string]interface{}         `yaml:"storage,omitempty"`
-	Tmux     map[string]interface{}         `yaml:"tmux,omitempty"`
-	Defaults map[string]interface{}         `yaml:"defaults,omitempty"`
+	Networks map[string]NetworkSpec `yaml:"networks"`
+	VMs      map[string]VMSpec      `yaml:"vms"`
+	Storage  map[string]interface{} `yaml:"storage,omitempty"`
+	Tmux     map[string]interface{} `yaml:"tmux,omitempty"`
+	Defaults map[string]interface{} `yaml:"defaults,omitempty"`
 }
 
 // NetworkSpec describes a single libvirt network resource.
