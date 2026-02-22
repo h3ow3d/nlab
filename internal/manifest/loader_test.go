@@ -74,7 +74,7 @@ func TestLoadBytesValid(t *testing.T) {
 	}
 }
 
-func TestLoadBytesFile(t *testing.T) {
+func TestLoadMissingFile(t *testing.T) {
 	_, err := manifest.Load("/nonexistent/path/stack.yaml")
 	if err == nil {
 		t.Error("expected error for missing file, got nil")
@@ -291,5 +291,26 @@ spec:
 	// Should mention both apiVersion and xml issues
 	if !strings.Contains(err.Error(), "apiVersion") {
 		t.Errorf("error should mention apiVersion, got: %v", err)
+	}
+}
+
+func TestUnknownFieldIsRejected(t *testing.T) {
+	yaml := `
+apiVersion: nlab.io/v1alpha1
+kind: Stack
+metadata:
+  name: test
+spec:
+  networks:
+    net:
+      xml: "<network><name>net</name></network>"
+  vms:
+    attacker:
+      xml: "<domain type=\"kvm\"><name>attacker</name></domain>"
+      unknownField: should-fail
+`
+	_, err := manifest.LoadBytes([]byte(yaml), "test")
+	if err == nil {
+		t.Error("expected error for unknown YAML field, got nil")
 	}
 }

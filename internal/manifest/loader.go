@@ -71,6 +71,10 @@ func Validate(m *types.StackManifest, source string) error {
 		errs = append(errs, "spec.networks: at least one network is required")
 	}
 	for name, net := range m.Spec.Networks {
+		if strings.TrimSpace(name) == "" {
+			errs = append(errs, "spec.networks: network name must not be empty or whitespace-only")
+			continue
+		}
 		if net.XML == "" {
 			errs = append(errs, fmt.Sprintf("spec.networks.%s: xml field is required", name))
 		} else if xmlErr := validateXML(net.XML); xmlErr != nil {
@@ -83,6 +87,10 @@ func Validate(m *types.StackManifest, source string) error {
 		errs = append(errs, "spec.vms: at least one VM is required")
 	}
 	for name, vm := range m.Spec.VMs {
+		if strings.TrimSpace(name) == "" {
+			errs = append(errs, "spec.vms: VM name must not be empty or whitespace-only")
+			continue
+		}
 		if vm.XML == "" {
 			errs = append(errs, fmt.Sprintf("spec.vms.%s: xml field is required", name))
 		} else if xmlErr := validateXML(vm.XML); xmlErr != nil {
