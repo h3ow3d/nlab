@@ -314,3 +314,43 @@ spec:
 		t.Error("expected error for unknown YAML field, got nil")
 	}
 }
+
+func TestValidateWhitespaceOnlyNetworkName(t *testing.T) {
+	yaml := `
+apiVersion: nlab.io/v1alpha1
+kind: Stack
+metadata:
+  name: test
+spec:
+  networks:
+    "   ":
+      xml: "<network><name>net</name></network>"
+  vms:
+    attacker:
+      xml: "<domain type="kvm"><name>attacker</name></domain>"
+`
+	_, err := manifest.LoadBytes([]byte(yaml), "test")
+	if err == nil {
+		t.Error("expected error for whitespace-only network name, got nil")
+	}
+}
+
+func TestValidateWhitespaceOnlyVMName(t *testing.T) {
+	yaml := `
+apiVersion: nlab.io/v1alpha1
+kind: Stack
+metadata:
+  name: test
+spec:
+  networks:
+    net:
+      xml: "<network><name>net</name></network>"
+  vms:
+    "   ":
+      xml: "<domain type="kvm"><name>attacker</name></domain>"
+`
+	_, err := manifest.LoadBytes([]byte(yaml), "test")
+	if err == nil {
+		t.Error("expected error for whitespace-only VM name, got nil")
+	}
+}

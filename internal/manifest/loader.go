@@ -62,7 +62,7 @@ func Validate(m *types.StackManifest, source string) error {
 	}
 
 	// Metadata checks.
-	if m.Metadata.Name == "" {
+	if strings.TrimSpace(m.Metadata.Name) == "" {
 		errs = append(errs, "missing required field: metadata.name")
 	}
 
@@ -75,7 +75,7 @@ func Validate(m *types.StackManifest, source string) error {
 			errs = append(errs, "spec.networks: network name must not be empty or whitespace-only")
 			continue
 		}
-		if net.XML == "" {
+		if strings.TrimSpace(net.XML) == "" {
 			errs = append(errs, fmt.Sprintf("spec.networks.%s: xml field is required", name))
 		} else if xmlErr := validateXML(net.XML); xmlErr != nil {
 			errs = append(errs, fmt.Sprintf("spec.networks.%s: xml is malformed: %v", name, xmlErr))
@@ -91,7 +91,7 @@ func Validate(m *types.StackManifest, source string) error {
 			errs = append(errs, "spec.vms: VM name must not be empty or whitespace-only")
 			continue
 		}
-		if vm.XML == "" {
+		if strings.TrimSpace(vm.XML) == "" {
 			errs = append(errs, fmt.Sprintf("spec.vms.%s: xml field is required", name))
 		} else if xmlErr := validateXML(vm.XML); xmlErr != nil {
 			errs = append(errs, fmt.Sprintf("spec.vms.%s: xml is malformed: %v", name, xmlErr))

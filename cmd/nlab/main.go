@@ -141,8 +141,9 @@ Supply either a stack name or an explicit file path:
 
 Checks performed:
   • apiVersion and kind are present and correct
-  • metadata.name is set
+  • metadata.name is set and non-whitespace
   • spec.networks and spec.vms are non-empty
+  • Network and VM names must not be empty or whitespace-only
   • Each network and VM has a non-empty xml field
   • All xml fields are well-formed XML`,
 		Example: "  nlab validate basic\n  nlab validate -f stacks/basic/stack.yaml",

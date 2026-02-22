@@ -12,17 +12,17 @@ type StackManifest struct {
 // ObjectMeta holds identity metadata for a stack manifest.
 type ObjectMeta struct {
 	Name        string            `yaml:"name"`
-	Labels      map[string]string `yaml:"labels"`
-	Annotations map[string]string `yaml:"annotations"`
+	Labels      map[string]string `yaml:"labels,omitempty"`
+	Annotations map[string]string `yaml:"annotations,omitempty"`
 }
 
 // StackSpec is the spec section of a StackManifest.
 type StackSpec struct {
 	Networks map[string]NetworkSpec         `yaml:"networks"`
 	VMs      map[string]VMSpec              `yaml:"vms"`
-	Storage  map[string]interface{}         `yaml:"storage"`
-	Tmux     map[string]interface{}         `yaml:"tmux"`
-	Defaults map[string]interface{}         `yaml:"defaults"`
+	Storage  map[string]interface{}         `yaml:"storage,omitempty"`
+	Tmux     map[string]interface{}         `yaml:"tmux,omitempty"`
+	Defaults map[string]interface{}         `yaml:"defaults,omitempty"`
 }
 
 // NetworkSpec describes a single libvirt network resource.
