@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -32,8 +33,12 @@ func LoadStack(stackName string) (*StackConfig, error) {
 		return nil, fmt.Errorf("read stack config %s: %w", path, err)
 	}
 
-	// Detect v1alpha1 format by presence of "apiVersion:" key.
-	if strings.Contains(string(data), "apiVersion:") {
+	// Detect v1alpha1 format by checking for top-level apiVersion and kind keys.
+	var meta struct {
+		APIVersion string `yaml:"apiVersion"`
+		Kind       string `yaml:"kind"`
+	}
+	if err := yaml.Unmarshal(data, &meta); err == nil && meta.APIVersion != "" && meta.Kind != "" {
 		return loadStackV1alpha1(data, path)
 	}
 
@@ -87,12 +92,19 @@ func loadStackV1alpha1(data []byte, path string) (*StackConfig, error) {
 		return nil, fmt.Errorf("stack config %s: spec.vms is required", path)
 	}
 
-	// Use the first (typically only) network name as the network identifier.
-	var networkName, networkXML string
-	for name, net := range raw.Spec.Networks {
-		networkName = name
-		networkXML = net.XML
-		break
+	// Use the first network (sorted alphabetically for deterministic selection).
+	// v1alpha1 manifests typically define a single network; if multiple are
+	// present the alphabetically first name is chosen.
+	var networkNames []string
+	for name := range raw.Spec.Networks {
+		networkNames = append(networkNames, name)
+	}
+	sort.Strings(networkNames)
+	networkName := networkNames[0]
+	networkXML := strings.TrimSpace(raw.Spec.Networks[networkName].XML)
+
+	if networkXML == "" {
+		return nil, fmt.Errorf("stack config %s: spec.networks.%s.xml is required and must be non-empty", path, networkName)
 	}
 
 	cfg := &StackConfig{Network: networkName, NetworkXML: networkXML}
@@ -101,20 +113,21 @@ func loadStackV1alpha1(data []byte, path string) (*StackConfig, error) {
 		spec := VMSpec{Name: name}
 		if vm.XML != "" {
 			var d domainMemVCPU
-			if err := xml.Unmarshal([]byte(vm.XML), &d); err == nil {
-				mem := d.Memory.Value
-				// Normalise to MiB — libvirt default unit is KiB.
-				switch strings.ToLower(d.Memory.Unit) {
-				case "kib", "k", "":
-					mem /= 1024
-				case "mib", "m":
-					// already MiB
-				case "gib", "g":
-					mem *= 1024
-				}
-				spec.Memory = mem
-				spec.VCPUs = d.VCPU
+			if err := xml.Unmarshal([]byte(vm.XML), &d); err != nil {
+				return nil, fmt.Errorf("stack config %s: parse VM %s domain XML: %w", path, name, err)
 			}
+			mem := d.Memory.Value
+			// Normalise to MiB — libvirt default unit is KiB.
+			switch strings.ToLower(d.Memory.Unit) {
+			case "kib", "k", "":
+				mem /= 1024
+			case "mib", "m":
+				// already MiB
+			case "gib", "g":
+				mem *= 1024
+			}
+			spec.Memory = mem
+			spec.VCPUs = d.VCPU
 		}
 		cfg.VMs = append(cfg.VMs, spec)
 	}

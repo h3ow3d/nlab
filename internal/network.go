@@ -17,9 +17,9 @@ func CreateNetwork(networkXML, networkName string) error {
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
+	defer tmp.Close()
 
 	if _, err := tmp.WriteString(networkXML); err != nil {
-		tmp.Close()
 		return fmt.Errorf("write temp network XML: %w", err)
 	}
 	tmp.Close()

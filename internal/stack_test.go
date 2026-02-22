@@ -119,6 +119,9 @@ spec:
 	if cfg.Network != "mynet" {
 		t.Errorf("Network = %q, want mynet", cfg.Network)
 	}
+	if cfg.NetworkXML == "" {
+		t.Error("NetworkXML is empty, want non-empty")
+	}
 	if len(cfg.VMs) != 2 {
 		t.Fatalf("len(VMs) = %d, want 2", len(cfg.VMs))
 	}
