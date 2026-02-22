@@ -1,8 +1,77 @@
-network: template_net
-vms:
-  - name: attacker
-    memory: 4096
-    vcpus: 2
-  - name: target
-    memory: 2048
-    vcpus: 2
+apiVersion: nlab.io/v1alpha1
+kind: Stack
+metadata:
+  name: template
+spec:
+  networks:
+    template_net:
+      xml: |
+        <network>
+          <name>template_net</name>
+          <bridge name="virbr-template" stp="on" delay="0"/>
+          <forward mode="nat"/>
+          <ip address="10.10.20.1" netmask="255.255.255.0">
+            <dhcp>
+              <range start="10.10.20.100" end="10.10.20.200"/>
+            </dhcp>
+          </ip>
+        </network>
+  vms:
+    attacker:
+      xml: |
+        <domain type="kvm">
+          <name>template-attacker</name>
+          <memory unit="MiB">4096</memory>
+          <vcpu placement="static">2</vcpu>
+          <os>
+            <type arch="x86_64" machine="pc-i440fx-focal">hvm</type>
+            <boot dev="hd"/>
+          </os>
+          <features>
+            <acpi/>
+            <apic/>
+          </features>
+          <devices>
+            <disk type="file" device="disk">
+              <driver name="qemu" type="qcow2"/>
+              <source file="/var/lib/libvirt/images/template-attacker.qcow2"/>
+              <target dev="vda" bus="virtio"/>
+            </disk>
+            <interface type="network">
+              <source network="template_net"/>
+              <model type="virtio"/>
+            </interface>
+            <channel type="unix">
+              <target type="virtio" name="org.qemu.guest_agent.0"/>
+            </channel>
+          </devices>
+        </domain>
+    target:
+      xml: |
+        <domain type="kvm">
+          <name>template-target</name>
+          <memory unit="MiB">2048</memory>
+          <vcpu placement="static">2</vcpu>
+          <os>
+            <type arch="x86_64" machine="pc-i440fx-focal">hvm</type>
+            <boot dev="hd"/>
+          </os>
+          <features>
+            <acpi/>
+            <apic/>
+          </features>
+          <devices>
+            <disk type="file" device="disk">
+              <driver name="qemu" type="qcow2"/>
+              <source file="/var/lib/libvirt/images/template-target.qcow2"/>
+              <target dev="vda" bus="virtio"/>
+            </disk>
+            <interface type="network">
+              <source network="template_net"/>
+              <model type="virtio"/>
+            </interface>
+            <channel type="unix">
+              <target type="virtio" name="org.qemu.guest_agent.0"/>
+            </channel>
+          </devices>
+        </domain>
