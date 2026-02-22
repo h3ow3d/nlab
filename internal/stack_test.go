@@ -86,3 +86,57 @@ func TestLoadStackNotFound(t *testing.T) {
 		t.Error("expected error for non-existent stack.yaml, got nil")
 	}
 }
+
+func TestLoadStackV1alpha1(t *testing.T) {
+	setupStack(t, "v1", `
+apiVersion: nlab.io/v1alpha1
+kind: Stack
+metadata:
+  name: v1
+spec:
+  networks:
+    mynet:
+      xml: |
+        <network><name>mynet</name></network>
+  vms:
+    attacker:
+      xml: |
+        <domain type="kvm">
+          <memory unit="MiB">4096</memory>
+          <vcpu>2</vcpu>
+        </domain>
+    target:
+      xml: |
+        <domain type="kvm">
+          <memory unit="MiB">2048</memory>
+          <vcpu>1</vcpu>
+        </domain>
+`)
+	cfg, err := lab.LoadStack("v1")
+	if err != nil {
+		t.Fatalf("LoadStack v1alpha1: %v", err)
+	}
+	if cfg.Network != "mynet" {
+		t.Errorf("Network = %q, want mynet", cfg.Network)
+	}
+	if len(cfg.VMs) != 2 {
+		t.Fatalf("len(VMs) = %d, want 2", len(cfg.VMs))
+	}
+	// Find attacker VM (map iteration order is non-deterministic)
+	var attacker *lab.VMSpec
+	for i := range cfg.VMs {
+		if cfg.VMs[i].Name == "attacker" {
+			attacker = &cfg.VMs[i]
+			break
+		}
+	}
+	if attacker == nil {
+		t.Fatal("VM 'attacker' not found")
+	}
+	if attacker.Memory != 4096 {
+		t.Errorf("attacker.Memory = %d, want 4096", attacker.Memory)
+	}
+	if attacker.VCPUs != 2 {
+		t.Errorf("attacker.VCPUs = %d, want 2", attacker.VCPUs)
+	}
+}

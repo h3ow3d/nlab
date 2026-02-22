@@ -4,6 +4,7 @@
 //
 //	nlab version                     – print the nlab version
 //	nlab doctor                      – check host prerequisites
+//	nlab validate [<stack>|-f <file>] – validate a v1alpha1 stack manifest
 //	nlab image download              – download the Ubuntu 22.04 base cloud image
 //	nlab key generate <stack>        – generate a per-stack ed25519 SSH key pair
 //	nlab network create <stack>      – define and start the libvirt network
@@ -26,6 +27,7 @@ import (
 	"github.com/spf13/cobra"
 
 	lab "github.com/h3ow3d/nlab/internal"
+	"github.com/h3ow3d/nlab/internal/manifest"
 )
 
 // Version is the nlab release string. Override at build time with:
@@ -51,6 +53,7 @@ Quick start:
 	root.AddCommand(
 		versionCmd(),
 		doctorCmd(),
+		validateCmd(),
 		imageCmd(),
 		keyCmd(),
 		networkCmd(),
@@ -121,6 +124,48 @@ Exits with a non-zero status if any critical prerequisite is missing.`,
 	}
 }
 
+// ── validate ─────────────────────────────────────────────────────────────────────────
+
+func validateCmd() *cobra.Command {
+	var file string
+	cmd := &cobra.Command{
+		Use:          "validate [<stack> | -f <file>]",
+		Short:        "Validate a v1alpha1 stack manifest",
+		SilenceUsage: true,
+		Long: `Parses and validates a stack manifest against the nlab.io/v1alpha1 schema.
+
+Supply either a stack name or an explicit file path:
+
+  nlab validate basic              reads stacks/basic/stack.yaml
+  nlab validate -f /my/stack.yaml  reads the given file directly
+
+Checks performed:
+  • apiVersion and kind are present and correct
+  • metadata.name is set
+  • spec.networks and spec.vms are non-empty
+  • Each network and VM has a non-empty xml field
+  • All xml fields are well-formed XML`,
+		Example: "  nlab validate basic\n  nlab validate -f stacks/basic/stack.yaml",
+		Args:    cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			path := file
+			if path == "" {
+				if len(args) == 0 {
+					return fmt.Errorf("provide a stack name (e.g. nlab validate basic) or use -f <file>")
+				}
+				path = fmt.Sprintf("stacks/%s/stack.yaml", args[0])
+			}
+			if _, err := manifest.Load(path); err != nil {
+				return err
+			}
+			fmt.Printf("manifest %q is valid\n", path)
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&file, "file", "f", "", "Path to the stack manifest YAML file (overrides stack name)")
+	return cmd
+}
+
 // ── image ─────────────────────────────────────────────────────────────────────
 
 func imageCmd() *cobra.Command {
@@ -177,8 +222,8 @@ func networkCmd() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "create <stack>",
 		Short: "Define and start the libvirt network for a stack",
-		Long: `Reads stacks/<stack>/network.xml and stacks/<stack>/stack.yaml, then
-defines, starts, and sets the network to autostart in libvirt.
+		Long: `Reads stacks/<stack>/stack.yaml, then defines, starts, and sets the
+network to autostart in libvirt using the XML embedded in the manifest.
 
 Replaces: ./scripts/create-network.sh stacks/<stack>/network.xml <network> <stack>`,
 		Example: "  nlab network create basic",
@@ -189,7 +234,7 @@ Replaces: ./scripts/create-network.sh stacks/<stack>/network.xml <network> <stac
 			if err != nil {
 				return err
 			}
-			return lab.CreateNetwork(fmt.Sprintf("stacks/%s/network.xml", stackName), cfg.Network)
+			return lab.CreateNetwork(cfg.NetworkXML, cfg.Network)
 		},
 	})
 
@@ -376,7 +421,7 @@ func runUp(stackName string) error {
 		return err
 	}
 
-	if err := lab.CreateNetwork(fmt.Sprintf("stacks/%s/network.xml", stackName), cfg.Network); err != nil {
+	if err := lab.CreateNetwork(cfg.NetworkXML, cfg.Network); err != nil {
 		return err
 	}
 
