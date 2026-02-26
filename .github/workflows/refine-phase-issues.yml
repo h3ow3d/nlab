@@ -1,0 +1,1110 @@
+name: Refine Phase Issues
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "copilot/refine-phase-issues"
+
+jobs:
+  refine-issues:
+    name: Rename, Rewrite, and Create Phase Issues
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Create phase labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          create_label() {
+            local name="$1" color="$2" desc="$3"
+            gh label create "$name" --color "$color" --description "$desc" \
+              --repo h3ow3d/nlab 2>/dev/null \
+              || gh label edit "$name" --color "$color" --description "$desc" \
+                   --repo h3ow3d/nlab
+          }
+          create_label "phase/00-foundation"     "0075ca" "P00 Phase 0: Pre-commit, Lint, and CI"
+          create_label "phase/01-manifest"       "e4e669" "P01 Phase 1: Manifest Loader and Validator"
+          create_label "phase/02-engine"         "d93f0b" "P02 Phase 2: Engine (Apply, Delete, Get)"
+          create_label "phase/03-provider"       "0e8a16" "P03 Phase 3: Provider Layer (libvirt Integration)"
+          create_label "phase/04-storage"        "1d76db" "P04 Phase 4: Storage Manager"
+          create_label "phase/05-cloudinit"      "5319e7" "P05 Phase 5: Cloud-init and Guest Agent"
+          create_label "phase/06-cli"            "f9d0c4" "P06 Phase 6: Operational CLI + JSON contract"
+          create_label "phase/07-workflows"      "fef2c0" "P07 Phase 7: tmux + tcpdump Workflows"
+          create_label "phase/08-tui"            "c2e0c6" "P08 Phase 8: TUI (BubbleTea-style)"
+          create_label "phase/09-observability"  "bfd4f2" "P09 Phase 9: Logs and Observability"
+          create_label "phase/10-docs"           "d4c5f9" "P10 Phase 10: Documentation and Example Labs"
+
+      - name: Write P00 body
+        run: |
+          cat > /tmp/p00.md << 'BODYEOF'
+## Context
+
+This phase establishes code quality foundations for the nlab project, as specified in
+`docs/architecture.md`. It sets up automated linting, formatting, and continuous integration
+to ensure all future phases maintain consistent quality standards throughout the development
+lifecycle.
+
+The pre-commit hooks and CI workflows serve as the gatekeeping layer for all subsequent
+phases, making them a prerequisite for any code contributions. See
+[docs/architecture.md](docs/architecture.md) for the canonical project structure and quality
+standards.
+
+## Scope
+
+- Add `.pre-commit-config.yaml` with hooks: `go fmt`, `go vet`, `staticcheck`
+- Configure GitHub Actions CI workflow: build, lint, and test on all branches/PRs
+- Add initial test suite stubs to verify CI health
+- Configure `golangci-lint` with project-appropriate rules
+- Document local dev setup (pre-commit install instructions)
+
+## Non-goals
+
+- Full test coverage (stubs only at this phase)
+- Custom linting rules beyond standard Go tools
+- Release/publish workflows
+
+## Blocked by
+
+_None — this is the foundation phase._
+
+## Blocks
+
+- #21 (P01 Phase 1)
+
+## Acceptance Criteria
+
+- [ ] `go build ./...` passes in CI
+- [ ] `go test ./...` passes in CI (even with stub tests)
+- [ ] `golangci-lint` runs and passes on all PRs
+- [ ] Pre-commit hooks (`go fmt`, `go vet`) run on `git commit`
+- [ ] CI workflow is triggered on every push and PR to all branches
+- [ ] At least one example test exists and passes in CI
+
+_See [docs/architecture.md](docs/architecture.md) for canonical project structure and quality standards._
+BODYEOF
+
+      - name: Write P01 body
+        run: |
+          cat > /tmp/p01.md << 'BODYEOF'
+## Context
+
+This phase implements the YAML manifest loader and validator for nlab, the entry point for
+all stack deployments. As defined in `docs/architecture.md` (D2, D4), the single-file stack
+manifest (`stack.yaml`) is the "golden path" with a Kubernetes-inspired header
+(`apiVersion: nlab.io/v1alpha1`, `kind: Stack`) and top-level `networks:` and `vms:` keys
+supporting XML-in-YAML for libvirt resources.
+
+All CLI commands and engine operations depend on a validated manifest. This phase makes the
+manifest contract explicit and testable. See [docs/architecture.md](docs/architecture.md)
+manifest format section for the full spec.
+
+## Scope
+
+- Implement `internal/manifest/` package: parse `stack.yaml` into typed Go structs
+- Support `internal/types/` models: `StackSpec`, `NetworkSpec`, `VMSpec`, tmux spec, storage spec
+- Validate required fields: `apiVersion`, `kind`, `metadata.name`, `spec.networks`, `spec.vms`
+- Validate uniqueness of resource names
+- Validate XML-in-YAML fields are parseable XML
+- Return actionable error messages for validation failures
+- Implement `nlab validate -f stack.yaml` CLI command
+
+## Non-goals
+
+- Full XML schema validation (v1 validates parseability only)
+- Multi-file manifest bundles
+- YAML-native VM/network spec (XML-in-YAML only in v1)
+
+## Blocked by
+
+- #20 (P00 Phase 0)
+
+## Blocks
+
+- #22 (P02 Phase 2)
+
+## Acceptance Criteria
+
+- [ ] `internal/manifest.Load("stack.yaml")` returns typed structs without error for valid manifests
+- [ ] Validation returns clear errors for: missing `apiVersion`, missing `kind`, missing `metadata.name`
+- [ ] Validation catches duplicate network/VM names
+- [ ] Validation returns error for malformed XML in `spec.vms.<name>.xml` or `spec.networks.<name>.xml`
+- [ ] `nlab validate -f stack.yaml` exits 0 for valid manifest, non-zero with human-readable error for invalid
+- [ ] Unit tests cover happy path, missing fields, duplicate names, and malformed XML
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) manifest format section._
+BODYEOF
+
+      - name: Write P02 body
+        run: |
+          cat > /tmp/p02.md << 'BODYEOF'
+## Context
+
+This phase builds the deterministic orchestration engine for nlab, as described in
+`docs/architecture.md` (engine section). The engine is the central coordinator that
+translates validated manifests into libvirt operations: `apply` creates/updates resources
+idempotently, `delete` removes managed resources safely, and `get` retrieves current state
+for diagnostics. The engine enforces ownership markers and safety rules (managed-only delete,
+purge semantics).
+
+The engine must be independently testable without a real libvirt daemon (via interfaces).
+See [docs/architecture.md](docs/architecture.md) for engine responsibilities, safety rules,
+and ownership marker format.
+
+## Scope
+
+- Implement `internal/engine/` package with `Apply`, `Delete`, and `Get` operations
+- Enforce idempotency: `apply` on already-applied stack is a no-op or safe update
+- Enforce ownership markers (`nlab.io/managed=true`, `nlab.io/stack=<name>`, etc.)
+- Implement safe delete: refuse to delete unmarked resources unless `--force`
+- Implement `--purge` semantics: additionally remove overlays and stack-managed artifacts
+- Define provider interface for testability (mock provider for unit tests)
+
+## Non-goals
+
+- Direct libvirt calls (handled by P03 provider layer)
+- Storage management (handled by P04)
+- Cloud-init generation (handled by P05)
+
+## Blocked by
+
+- #21 (P01 Phase 1)
+
+## Blocks
+
+- #23 (P03 Phase 3)
+
+## Acceptance Criteria
+
+- [ ] `engine.Apply(manifest)` is idempotent: applying the same manifest twice produces no error and same state
+- [ ] `engine.Delete(manifest)` refuses to delete resources not marked `nlab.io/managed=true` (returns error without `--force`)
+- [ ] `engine.Delete(manifest, --purge)` removes overlays and stack artifacts in addition to libvirt definitions
+- [ ] `engine.Get(stackName)` returns current state for existing and non-existent stacks
+- [ ] All engine operations work against a mock provider interface (no real libvirt required for unit tests)
+- [ ] Ownership markers are inserted/validated per `docs/architecture.md` spec
+- [ ] Unit tests cover: apply new, apply existing (idempotent), delete managed, delete unmanaged (blocked), purge
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) for engine responsibilities and safety rules._
+BODYEOF
+
+      - name: Write P03 body
+        run: |
+          cat > /tmp/p03.md << 'BODYEOF'
+## Context
+
+This phase implements the libvirt provider layer that executes actual virtualization
+operations on the local Ubuntu host. As defined in `docs/architecture.md` (provider section,
+D3), this layer accepts typed domain/network specs from the engine and translates them to
+`virsh` commands. It is responsible for inserting and validating ownership markers in XML,
+starting/stopping/undefining domains, and collecting resource status.
+
+The provider layer is the bridge between nlab's deterministic engine and the libvirt daemon.
+All higher-level phases depend on this working correctly. See
+[docs/architecture.md](docs/architecture.md) for provider details and D3
+(VM vs domain terminology).
+
+## Scope
+
+- Implement `internal/provider/libvirt/` package
+- Support `virsh` command runner for: `define`, `start`, `shutdown`, `destroy`, `undefine`,
+  `dominfo`, `net-define`, `net-start`, `net-destroy`, `net-undefine`
+- XML patching: insert ownership markers in `<description>` element
+- Expose `DumpXML` for debugging (`nlab vm dumpxml <vm>`)
+- Status collector: gather domain/network state, return structured status
+
+## Non-goals
+
+- Remote libvirt URIs (local only in v1)
+- Storage volume management (handled by P04)
+- Cloud-init disk attachment (handled by P05)
+
+## Blocked by
+
+- #22 (P02 Phase 2)
+
+## Blocks
+
+- #24 (P04 Phase 4)
+- #26 (P06a Phase 6a)
+- #29 (P09 Phase 9)
+
+## Acceptance Criteria
+
+- [ ] Provider can `define` and `start` a domain from libvirt XML (requires local libvirt for integration test)
+- [ ] Provider can `define` and `start` a network from libvirt XML
+- [ ] Ownership markers (`nlab.io/managed=true`, `nlab.io/stack`, `nlab.io/resource`, `nlab.io/name`) are inserted into `<description>` and readable back via `DumpXML`
+- [ ] Provider refuses to `undefine` domains/networks without ownership markers (returns error)
+- [ ] `DumpXML` returns effective XML for a running domain
+- [ ] Status collector returns structured state (running/stopped/undefined) for domains and networks
+- [ ] Unit tests cover XML patching and marker insertion with mock virsh runner
+- [ ] Integration test skeleton exists (may be skipped in CI without libvirt)
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) for provider details._
+BODYEOF
+
+      - name: Write P04 body
+        run: |
+          cat > /tmp/p04.md << 'BODYEOF'
+## Context
+
+This phase implements the batteries-included storage manager described in
+`docs/architecture.md` (D5, storage section). nlab owns a predictable XDG-based on-disk
+layout under `~/.local/share/nlab/` for base images and overlays, and
+`~/.local/state/nlab/` for logs and pcap captures. For each VM, nlab creates a qcow2
+overlay referencing a cached base image, enabling fast provisioning and clean isolation.
+
+Storage management is a prerequisite for cloud-init ISO attachment (P05) and full stack
+lifecycle operations. See [docs/architecture.md](docs/architecture.md) storage section for
+directory layout and purge semantics.
+
+## Scope
+
+- Implement `internal/storage/` package
+- Manage XDG directory structure:
+  - `~/.local/share/nlab/images/` — base image cache
+  - `~/.local/share/nlab/cloudinit/` — generated cloud-init seeds
+  - `~/.local/state/nlab/logs/` — VM and nlab logs
+  - `~/.local/state/nlab/pcap/` — tcpdump captures
+- Support base image caching: fetch-and-cache from URL or local path
+- Create per-VM qcow2 overlays referencing cached base image
+- Implement purge semantics: default delete keeps base images; `--purge` removes overlays and stack artifacts
+- Respect XDG overrides via environment variables
+
+## Non-goals
+
+- Remote image registries (URL fetch only)
+- LVM or pool-based storage (directory-backed only in v1)
+- Cloud-init ISO generation (handled by P05)
+
+## Blocked by
+
+- #23 (P03 Phase 3)
+
+## Blocks
+
+- #25 (P05 Phase 5)
+
+## Acceptance Criteria
+
+- [ ] `storage.Init()` creates XDG directory structure idempotently
+- [ ] `storage.CacheImage(source)` fetches and caches a base image from URL or copies from local path
+- [ ] `storage.CreateOverlay(baseImage, vmName)` creates a qcow2 overlay linked to the base image
+- [ ] `storage.Purge(stackName)` removes overlays and artifacts for a named stack without touching cached base images
+- [ ] `storage.PurgeAll()` removes all stack artifacts (overlays, pcap); base images remain unless explicitly cleared
+- [ ] XDG base directory overrides (`XDG_DATA_HOME`, `XDG_STATE_HOME`) are respected
+- [ ] Unit tests cover: init, cache hit, cache miss (mock fetch), overlay create, purge semantics
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) storage section._
+BODYEOF
+
+      - name: Write P05 body
+        run: |
+          cat > /tmp/p05.md << 'BODYEOF'
+## Context
+
+This phase adds cloud-init and qemu-guest-agent integration as described in
+`docs/architecture.md` (D6, cloud-init section). nlab generates per-VM `user-data` and
+`meta-data` files, builds a seed ISO, and attaches it to the VM's libvirt XML. For
+supported Ubuntu cloud images, nlab pre-configures `qemu-guest-agent` installation via
+cloud-init, enabling richer IP discovery and status reporting in later phases.
+
+Graceful degradation is required: if the guest agent is unavailable (unsupported image or
+no network), nlab still functions and clearly reports the limitation. See
+[docs/architecture.md](docs/architecture.md) cloud-init section.
+
+## Scope
+
+- Implement `internal/cloudinit/` package
+- Generate per-VM `user-data` (optionally from stack manifest defaults) and `meta-data`
+- Build seed ISO using `genisoimage` or `cloud-localds` (document dependency)
+- Store seed ISOs under `~/.local/share/nlab/cloudinit/<stackName>/<vmName>/`
+- Patch VM libvirt XML to attach seed ISO as CDROM device
+- Configure cloud-init to install and enable `qemu-guest-agent` on Ubuntu images
+- Implement graceful degradation: log warning if agent unavailable, continue without error
+
+## Non-goals
+
+- Full cloud-config authoring UI (stack manifest provides user-data snippet)
+- Non-Ubuntu image support in v1 (Ubuntu cloud images are primary target)
+- Network configuration beyond what cloud-init supports natively
+
+## Blocked by
+
+- #24 (P04 Phase 4)
+
+## Blocks
+
+- #26 (P06a Phase 6a) — preferred for full cloud-init UX; not strictly blocking
+
+## Acceptance Criteria
+
+- [ ] `cloudinit.Generate(vmSpec, stackDefaults)` produces valid `user-data` and `meta-data` files
+- [ ] `cloudinit.BuildISO(vmName, stackName)` creates a seed ISO under the XDG cloudinit directory
+- [ ] Generated ISO is mountable and contains valid cloud-init `user-data` and `meta-data`
+- [ ] VM libvirt XML is patched to include the seed ISO as a CDROM device
+- [ ] `user-data` for Ubuntu images includes `qemu-guest-agent` install and enable steps
+- [ ] If guest agent is unavailable at runtime, CLI reports a clear informational message (not an error)
+- [ ] Unit tests cover: generate user-data, build ISO path calculation, XML patching for CDROM attachment
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) cloud-init section._
+BODYEOF
+
+      - name: Write P06a body (placeholder — updated after P06b/P07b created)
+        run: |
+          cat > /tmp/p06a.md << 'BODYEOF'
+## Context
+
+This phase implements the operational CLI commands for human users, as described in
+`docs/architecture.md` (CLI section). These are the day-to-day commands users run to manage
+stacks and VMs: listing, starting, stopping, viewing status, opening consoles, and
+applying/deleting manifests. Human-readable output is the primary format here.
+
+**JSON output contract and golden tests are handled in P06b** (a separate sibling issue).
+P06a focuses on command wiring, human UX, error messages, and human-friendly output format.
+See [docs/architecture.md](docs/architecture.md) CLI section for the minimum command surface.
+
+## Scope
+
+- Implement CLI commands in `internal/cli/` and wire via `cmd/nlab/`:
+  - `nlab validate -f stack.yaml`
+  - `nlab apply -f stack.yaml`
+  - `nlab delete -f stack.yaml [--purge] [--force]`
+  - `nlab stack ls`
+  - `nlab stack status <stack>`
+  - `nlab stack up|down|restart <stack>`
+  - `nlab vm ls --stack <stack>`
+  - `nlab vm start|stop|reboot <vm>`
+  - `nlab vm console <vm>`
+- Human-friendly, actionable error messages for Ubuntu users
+- `--json` flag accepted by all output commands (implementation deferred to P06b)
+- Exit codes: 0 for success, non-zero for errors
+
+## Non-goals
+
+- JSON output schema/golden tests (handled by P06b)
+- TUI (handled by P08)
+- tmux/tcpdump CLI commands (handled by P07a, P07b)
+- Observability/logs commands (handled by P09)
+
+## Blocked by
+
+- #23 (P03 Phase 3)
+- #25 (P05 Phase 5) — preferred for full cloud-init UX; not strictly blocking
+
+## Blocks
+
+- P06b (JSON output contract — see sibling issue)
+- #27 (P07a Phase 7a)
+- P07b (tcpdump integration — see sibling issue)
+
+## Acceptance Criteria
+
+- [ ] `nlab validate -f stack.yaml` exits 0 for valid manifest, non-zero with human error for invalid
+- [ ] `nlab apply -f stack.yaml` applies the stack idempotently and prints human-readable summary
+- [ ] `nlab delete -f stack.yaml` deletes managed resources; `--purge` removes overlays; `--force` overrides marker check
+- [ ] `nlab stack ls` lists stacks with human-readable output
+- [ ] `nlab stack status <stack>` shows VM/network states in human-readable format
+- [ ] `nlab stack up|down|restart <stack>` succeeds and prints status
+- [ ] `nlab vm ls --stack <stack>` lists VMs for a stack
+- [ ] `nlab vm start|stop|reboot <vm>` succeeds and confirms action
+- [ ] `nlab vm console <vm>` opens a console session
+- [ ] All output commands accept `--json` flag without error (output may be stub; contract in P06b)
+- [ ] Error messages are human-friendly and actionable (no raw Go panics or virsh stderr)
+- [ ] CLI integration tests (using mock provider) pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) CLI section._
+BODYEOF
+
+      - name: Write P07a body (placeholder — updated after P06b/P07b created)
+        run: |
+          cat > /tmp/p07a.md << 'BODYEOF'
+## Context
+
+This phase implements the manifest-driven tmux integration described in
+`docs/architecture.md` (D7, tmux section). `nlab stack tmux <stack>` creates or attaches
+to a tmux session named `nlab:<stack>`, with layout defined by the stack manifest's
+`spec.tmux` section. This enables users to observe multiple VMs in organized pane layouts
+during lab exercises.
+
+**tcpdump CLI integration is handled in P07b** (a separate sibling issue). P07a focuses
+exclusively on tmux session management, layout presets, and manifest-driven window/pane
+configuration. See [docs/architecture.md](docs/architecture.md) tmux integration section.
+
+## Scope
+
+- Implement `nlab stack tmux <stack>` command
+- Create/attach tmux session named `nlab:<stack>`
+- Support `spec.tmux.preset` values: `default`, `grid`, `wide`
+- Support `spec.tmux.windows:` optional pane command overrides
+- Graceful handling if tmux is not installed (clear error with install guidance)
+- Document tmux manifest spec in docs
+
+## Non-goals
+
+- tcpdump integration (handled by P07b)
+- TUI-driven tmux management (TUI hotkey `T` in P08 calls this CLI command)
+- Declarative multi-session layouts beyond v1 presets
+
+## Blocked by
+
+- #26 (P06a Phase 6a)
+
+## Blocks
+
+- #19 (P10 Phase 10)
+
+## Acceptance Criteria
+
+- [ ] `nlab stack tmux <stack>` creates a new tmux session named `nlab:<stack>` if none exists
+- [ ] `nlab stack tmux <stack>` attaches to existing session if one is already running
+- [ ] `spec.tmux.preset: default` opens one window per VM with a reasonable default command
+- [ ] `spec.tmux.preset: grid` opens a grid layout across VMs
+- [ ] `spec.tmux.windows:` overrides allow custom commands per pane
+- [ ] If tmux is not installed, command exits non-zero and prints actionable install guidance
+- [ ] Command is tested with mock tmux runner in unit tests
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) tmux integration section._
+BODYEOF
+
+      - name: Write P08 body (placeholder — updated after P06b created)
+        run: |
+          cat > /tmp/p08.md << 'BODYEOF'
+## Context
+
+This phase implements the k9s-like interactive TUI using BubbleTea, as described in
+`docs/architecture.md` (D1, TUI section). The TUI shells out to CLI commands with `--json`
+and parses the stable JSON output from P06b. It **MUST NOT** call internal engine or provider
+packages directly, and **MUST NOT** parse human-formatted output. This hard contract (D1)
+ensures CLI stability and scriptability.
+
+The TUI provides hotkeys for common operations including opening tmux sessions (hotkey `T`,
+calls P07a) and tcpdump live view (hotkey `P`, calls P07b CLI command). See
+[docs/architecture.md](docs/architecture.md) TUI, D1, and CLI contract sections.
+
+## Scope
+
+- Implement `internal/tui/` package using BubbleTea
+- Stack list view: calls `nlab stack ls --json`, displays stacks with status
+- VM list view: calls `nlab vm ls --stack <stack> --json`, shows VM states
+- Stack/VM operations via hotkeys: start, stop, restart (calls corresponding CLI)
+- Hotkey `T`: calls `nlab stack tmux <stack>` (P07a)
+- Hotkey `P`: calls `nlab stack tcpdump <stack>` (P07b)
+- Error dialogs: display `errors[]` from JSON responses
+- `nlab tui` entrypoint
+
+## Non-goals
+
+- Applying manifests from TUI (manifests are CLI-only per architecture)
+- Direct engine/provider calls (must use CLI --json subprocess only)
+- Human output parsing (must use JSON only)
+
+## Blocked by
+
+- P06b (JSON output contract — required for stable TUI data contract)
+
+## Blocks
+
+- #19 (P10 Phase 10)
+
+## Acceptance Criteria
+
+- [ ] `nlab tui` launches interactive TUI using BubbleTea
+- [ ] Stack list view displays stacks from `nlab stack ls --json` output
+- [ ] Selecting a stack shows VM list from `nlab vm ls --stack <stack> --json`
+- [ ] Stack status is refreshed periodically or on hotkey
+- [ ] Hotkey operations (start/stop/restart) invoke corresponding CLI commands
+- [ ] Hotkey `T` launches `nlab stack tmux <stack>` for the selected stack
+- [ ] Hotkey `P` launches `nlab stack tcpdump <stack>` for the selected stack
+- [ ] Errors from CLI JSON `errors[]` array are displayed in a TUI error dialog
+- [ ] TUI does NOT import or call `internal/engine`, `internal/provider`, or any non-TUI internal package directly
+- [ ] TUI unit tests mock CLI subprocess calls (no real CLI binary required)
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) D1 and TUI sections._
+BODYEOF
+
+      - name: Write P09 body
+        run: |
+          cat > /tmp/p09.md << 'BODYEOF'
+## Context
+
+This phase adds CLI observability commands for nlab, as described in `docs/architecture.md`
+(observability section). The primary command is `nlab logs vm <vm> [--follow]` which tails
+log sources available on Ubuntu for libvirt-managed VMs: QEMU/KVM logs, libvirt daemon logs,
+and cloud-init logs. This enables users to troubleshoot VM boot and runtime issues without
+leaving the nlab workflow.
+
+Log source discovery depends on the provider layer (P03) being operational so libvirt domain
+names and states are known. See [docs/architecture.md](docs/architecture.md)
+logs/observability section.
+
+## Scope
+
+- Implement `nlab logs vm <vm> [--follow]` command
+- Support log sources on Ubuntu:
+  - QEMU logs: `/var/log/libvirt/qemu/<domain>.log`
+  - libvirt daemon logs
+  - cloud-init logs (if applicable)
+- `--follow` mode: tail logs in real time (similar to `tail -f`)
+- `--json` flag: structured log output (`kind: LogStream`, `apiVersion`, `generatedAt`, `errors[]`)
+- Document log sources and troubleshooting in `docs/architecture.md` or `docs/install.md`
+- Graceful handling if log files are not accessible (permissions, path)
+
+## Non-goals
+
+- Centralized log aggregation (local files only)
+- VM-internal application logs (OS-level logs only)
+- Log rotation management
+
+## Blocked by
+
+- #23 (P03 Phase 3)
+
+## Blocks
+
+- #19 (P10 Phase 10)
+
+## Acceptance Criteria
+
+- [ ] `nlab logs vm <vm>` prints recent QEMU log entries for the specified VM
+- [ ] `nlab logs vm <vm> --follow` tails log output until interrupted (Ctrl-C)
+- [ ] Supports at least one Ubuntu log source: QEMU (`/var/log/libvirt/qemu/<domain>.log`)
+- [ ] If log file is not accessible, command exits non-zero and prints clear guidance (not raw OS error)
+- [ ] `--json` flag produces structured output with `apiVersion`, `kind: LogStream`, `generatedAt`, `errors[]`
+- [ ] Log sources are documented in `docs/architecture.md` or `docs/install.md`
+- [ ] Unit tests cover: log file found, log file not found, follow mode (mock)
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) logs/observability section._
+BODYEOF
+
+      - name: Write P10 body (placeholder — updated after P06b/P07b created)
+        run: |
+          cat > /tmp/p10.md << 'BODYEOF'
+## Context
+
+This phase represents the continuous documentation effort and final polish for the nlab
+project, as described in `docs/architecture.md` (documentation section). While documentation
+is ongoing throughout all phases, this phase specifically tracks the "final polish" work:
+ensuring README and docs are canonical, complete, and accurate; providing example lab
+manifests; and documenting Ubuntu-specific caveats. It is the capstone phase unblocked only
+when all operational phases are complete.
+
+`docs/architecture.md` is the source of truth for the project design. This phase ensures it
+stays synchronized with the implementation. Example labs serve as both documentation and
+integration test fixtures.
+
+## Scope
+
+- Update README with install, `nlab doctor` usage, troubleshooting, and batteries-included quickstart
+- Update `docs/install.md` with Ubuntu-specific setup: libvirt, cloud-init tools, tcpdump privilege setup
+- Ensure `docs/architecture.md` reflects implemented behavior (sync with implementation)
+- Provide example `stack.yaml` files (under `stacks/` or `docs/examples/`)
+- Provide typical VM and network XML examples for Ubuntu cloud images
+- Provide example tmux layout specifications
+- Document Ubuntu-specific caveats: tcpdump privilege setup, guest agent, cloud-init
+
+## Non-goals
+
+- Writing code or implementing features (documentation only in this phase)
+- Remote libvirt documentation (local Ubuntu only)
+
+## Blocked by
+
+- #26 (P06a Phase 6a)
+- P06b (JSON output contract — see sibling issue)
+- #27 (P07a Phase 7a)
+- P07b (tcpdump integration — see sibling issue)
+- #28 (P08 Phase 8 TUI)
+- #29 (P09 Phase 9)
+
+## Blocks
+
+_Nothing — this is the capstone phase._
+
+## Acceptance Criteria
+
+- [ ] README covers: install, `nlab doctor`, quick-start (`nlab apply -f examples/ubuntu-lab.yaml`), troubleshooting
+- [ ] `docs/install.md` covers: Ubuntu prerequisites, libvirt setup, tcpdump privilege setup, cloud-init tools
+- [ ] `docs/architecture.md` is up-to-date and matches implemented CLI commands and JSON output kinds
+- [ ] At least one example `stack.yaml` exists, is valid per `nlab validate`, and is referenced from README
+- [ ] Example manifests include: Ubuntu cloud VM with cloud-init, network definition, tmux layout
+- [ ] Ubuntu-specific caveats (tcpdump, guest agent, cloud-init) are documented
+- [ ] All documentation is reviewed for accuracy against implementation
+
+_See [docs/architecture.md](docs/architecture.md) for the canonical architecture reference._
+BODYEOF
+
+      - name: Create P06b issue (JSON output contract + golden tests)
+        id: create_p06b
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > /tmp/p06b.md << 'BODYEOF'
+## Context
+
+This phase defines and enforces the stable JSON output contract that the TUI (P08) and any
+scripting consumers depend on. As specified in `docs/architecture.md` (D1, JSON output
+contract section), all `--json` responses MUST include: `apiVersion` (e.g.
+`nlab.io/v1alpha1`), `kind` (e.g. `StackList`, `StackStatus`, `VMList`), `generatedAt`
+(RFC3339), and `errors` array (empty on success). P06b adds golden/snapshot tests to ensure
+this contract never silently breaks.
+
+The TUI (P08) depends on this contract being stable and tested before development begins.
+JSON stability is a hard requirement per D1 of the architecture. See
+[docs/architecture.md](docs/architecture.md) JSON output contract section.
+
+## Scope
+
+- Define JSON envelope struct in `internal/types/`:
+  `apiVersion`, `kind`, `generatedAt`, `errors[]`
+- For each CLI command supporting `--json` (from P06a), specify exact `kind` and required fields:
+  - `nlab stack ls --json` → `kind: StackList`
+  - `nlab stack status <stack> --json` → `kind: StackStatus`
+  - `nlab vm ls --stack <stack> --json` → `kind: VMList`
+  - (and others per architecture)
+- Implement `--json` output in all applicable CLI commands
+- Add golden/snapshot tests for JSON output stability under `testdata/golden/`
+- CI must fail if golden files drift from actual output
+
+## Non-goals
+
+- Human-readable output (handled by P06a)
+- TUI rendering (handled by P08)
+- tmux/tcpdump JSON output (out of scope for v1)
+
+## Blocked by
+
+- #26 (P06a Phase 6a)
+
+## Blocks
+
+- #28 (P08 Phase 8 TUI)
+- #19 (P10 Phase 10)
+
+## Acceptance Criteria
+
+- [ ] All `--json` outputs include `apiVersion`, `kind`, `generatedAt`, and `errors` fields
+- [ ] `nlab stack ls --json` produces valid JSON with `kind: StackList` and a `stacks` array
+- [ ] `nlab stack status <stack> --json` produces valid JSON with `kind: StackStatus` and status fields
+- [ ] `nlab vm ls --stack <stack> --json` produces valid JSON with `kind: VMList` and a `vms` array
+- [ ] Golden test files exist under `testdata/golden/` for each `--json` command
+- [ ] CI fails if actual `--json` output diverges from golden files
+- [ ] `errors` array is present and non-null on all responses (empty array on success)
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) D1 and JSON output contract section._
+BODYEOF
+
+          # Create the issue and capture the number
+          P06B_NUM=$(gh issue create \
+            --repo h3ow3d/nlab \
+            --title "P06b Phase 6b: JSON output contract + golden tests" \
+            --body-file /tmp/p06b.md \
+            --label "phase/06-cli" \
+            | grep -oP '(?<=issues/)\d+')
+          echo "p06b_number=$P06B_NUM" >> "$GITHUB_OUTPUT"
+          echo "Created P06b issue #$P06B_NUM"
+
+      - name: Create P07b issue (tcpdump integration + privilege setup)
+        id: create_p07b
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > /tmp/p07b.md << 'BODYEOF'
+## Context
+
+This phase implements the tcpdump CLI integration and privilege setup described in
+`docs/architecture.md` (D8, tcpdump section). The goal is "configure once, run without
+repeated sudo prompts" on Ubuntu, using a guided one-time setup approach that avoids
+weakening host security unnecessarily. The `nlab stack tcpdump` command enables live packet
+capture on VM bridge networks with optional pcap output.
+
+Privilege model safety is a key design constraint: any setup must be documented, auditable,
+and use the least-privilege approach possible (e.g. `setcap` on the `tcpdump` binary, or
+group membership, rather than broad `sudo` rules). See [docs/architecture.md](docs/architecture.md)
+tcpdump section and D8.
+
+## Scope
+
+- Implement `nlab stack tcpdump <stack> [--network <name>] [--filter <expr>] [--pcap <file>]` command
+- Live view mode: stream tcpdump output to terminal
+- Optional pcap output: `--pcap` flag writes capture to `~/.local/state/nlab/pcap/`
+- Safe defaults: minimal capture filter, no promiscuous mode unless explicitly requested
+- Implement guided one-time setup: `nlab setup tcpdump` (or documented equivalent) that configures
+  `setcap` or group membership
+- Safe error messages if setup is not done (clear guidance, not raw permission errors)
+- Document the privilege model in docs
+
+## Non-goals
+
+- Live TUI tcpdump view (TUI hotkey `P` in P08 calls this CLI command)
+- Remote/multi-host capture (local bridge interfaces only in v1)
+- tcpdump binary distribution (system tcpdump assumed)
+
+## Blocked by
+
+- #26 (P06a Phase 6a)
+
+## Blocks
+
+- #19 (P10 Phase 10)
+
+## Acceptance Criteria
+
+- [ ] `nlab stack tcpdump <stack>` starts a live tcpdump capture on the stack's bridge network interface
+- [ ] `--network <name>` selects a specific network interface when a stack has multiple networks
+- [ ] `--filter <expr>` passes a BPF filter expression to tcpdump
+- [ ] `--pcap <file>` writes capture to the specified file (defaulting to `~/.local/state/nlab/pcap/`)
+- [ ] On Ubuntu with proper setup, command runs without sudo prompt
+- [ ] If privilege setup is not done, command exits non-zero with actionable setup guidance (not raw "permission denied")
+- [ ] `nlab setup tcpdump` (or `nlab setup` subcommand) configures least-privilege tcpdump access and explains what it does
+- [ ] Setup command is idempotent and auditable (prints what changes were made)
+- [ ] Integration test exists (may be skipped without tcpdump binary)
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) D8 and tcpdump section._
+BODYEOF
+
+          P07B_NUM=$(gh issue create \
+            --repo h3ow3d/nlab \
+            --title "P07b Phase 7b: tcpdump integration + privilege setup" \
+            --body-file /tmp/p07b.md \
+            --label "phase/07-workflows" \
+            | grep -oP '(?<=issues/)\d+')
+          echo "p07b_number=$P07B_NUM" >> "$GITHUB_OUTPUT"
+          echo "Created P07b issue #$P07B_NUM"
+
+      - name: Update existing issues with final bodies (with correct P06b/P07b numbers)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          P06B: ${{ steps.create_p06b.outputs.p06b_number }}
+          P07B: ${{ steps.create_p07b.outputs.p07b_number }}
+        run: |
+          # Update P06a body to include correct P06b and P07b issue numbers
+          cat > /tmp/p06a-final.md << BODYEOF
+## Context
+
+This phase implements the operational CLI commands for human users, as described in
+\`docs/architecture.md\` (CLI section). These are the day-to-day commands users run to manage
+stacks and VMs: listing, starting, stopping, viewing status, opening consoles, and
+applying/deleting manifests. Human-readable output is the primary format here.
+
+**JSON output contract and golden tests are handled in #${P06B} (P06b)** (a separate sibling
+issue). P06a focuses on command wiring, human UX, error messages, and human-friendly output
+format. See [docs/architecture.md](docs/architecture.md) CLI section for the minimum command
+surface.
+
+## Scope
+
+- Implement CLI commands in \`internal/cli/\` and wire via \`cmd/nlab/\`:
+  - \`nlab validate -f stack.yaml\`
+  - \`nlab apply -f stack.yaml\`
+  - \`nlab delete -f stack.yaml [--purge] [--force]\`
+  - \`nlab stack ls\`
+  - \`nlab stack status <stack>\`
+  - \`nlab stack up|down|restart <stack>\`
+  - \`nlab vm ls --stack <stack>\`
+  - \`nlab vm start|stop|reboot <vm>\`
+  - \`nlab vm console <vm>\`
+- Human-friendly, actionable error messages for Ubuntu users
+- \`--json\` flag accepted by all output commands (implementation deferred to #${P06B})
+- Exit codes: 0 for success, non-zero for errors
+
+## Non-goals
+
+- JSON output schema/golden tests (handled by #${P06B} P06b)
+- TUI (handled by #28 P08)
+- tmux/tcpdump CLI commands (handled by #27 P07a, #${P07B} P07b)
+- Observability/logs commands (handled by #29 P09)
+
+## Blocked by
+
+- #23 (P03 Phase 3)
+- #25 (P05 Phase 5) — preferred for full cloud-init UX; not strictly blocking
+
+## Blocks
+
+- #${P06B} (P06b JSON output contract)
+- #27 (P07a Phase 7a)
+- #${P07B} (P07b tcpdump integration)
+
+## Acceptance Criteria
+
+- [ ] \`nlab validate -f stack.yaml\` exits 0 for valid manifest, non-zero with human error for invalid
+- [ ] \`nlab apply -f stack.yaml\` applies the stack idempotently and prints human-readable summary
+- [ ] \`nlab delete -f stack.yaml\` deletes managed resources; \`--purge\` removes overlays; \`--force\` overrides marker check
+- [ ] \`nlab stack ls\` lists stacks with human-readable output
+- [ ] \`nlab stack status <stack>\` shows VM/network states in human-readable format
+- [ ] \`nlab stack up|down|restart <stack>\` succeeds and prints status
+- [ ] \`nlab vm ls --stack <stack>\` lists VMs for a stack
+- [ ] \`nlab vm start|stop|reboot <vm>\` succeeds and confirms action
+- [ ] \`nlab vm console <vm>\` opens a console session
+- [ ] All output commands accept \`--json\` flag without error (output may be stub; contract in #${P06B})
+- [ ] Error messages are human-friendly and actionable (no raw Go panics or virsh stderr)
+- [ ] CLI integration tests (using mock provider) pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) CLI section._
+BODYEOF
+
+          # Update P07a body with correct P06b/P07b numbers
+          cat > /tmp/p07a-final.md << BODYEOF
+## Context
+
+This phase implements the manifest-driven tmux integration described in
+\`docs/architecture.md\` (D7, tmux section). \`nlab stack tmux <stack>\` creates or attaches
+to a tmux session named \`nlab:<stack>\`, with layout defined by the stack manifest's
+\`spec.tmux\` section. This enables users to observe multiple VMs in organized pane layouts
+during lab exercises.
+
+**tcpdump CLI integration is handled in #${P07B} (P07b)** (a separate sibling issue). P07a
+focuses exclusively on tmux session management, layout presets, and manifest-driven
+window/pane configuration. See [docs/architecture.md](docs/architecture.md) tmux integration
+section.
+
+## Scope
+
+- Implement \`nlab stack tmux <stack>\` command
+- Create/attach tmux session named \`nlab:<stack>\`
+- Support \`spec.tmux.preset\` values: \`default\`, \`grid\`, \`wide\`
+- Support \`spec.tmux.windows:\` optional pane command overrides
+- Graceful handling if tmux is not installed (clear error with install guidance)
+- Document tmux manifest spec in docs
+
+## Non-goals
+
+- tcpdump integration (handled by #${P07B} P07b)
+- TUI-driven tmux management (TUI hotkey \`T\` in P08 calls this CLI command)
+- Declarative multi-session layouts beyond v1 presets
+
+## Blocked by
+
+- #26 (P06a Phase 6a)
+
+## Blocks
+
+- #19 (P10 Phase 10)
+
+## Acceptance Criteria
+
+- [ ] \`nlab stack tmux <stack>\` creates a new tmux session named \`nlab:<stack>\` if none exists
+- [ ] \`nlab stack tmux <stack>\` attaches to existing session if one is already running
+- [ ] \`spec.tmux.preset: default\` opens one window per VM with a reasonable default command
+- [ ] \`spec.tmux.preset: grid\` opens a grid layout across VMs
+- [ ] \`spec.tmux.windows:\` overrides allow custom commands per pane
+- [ ] If tmux is not installed, command exits non-zero and prints actionable install guidance
+- [ ] Command is tested with mock tmux runner in unit tests
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) tmux integration section._
+BODYEOF
+
+          # Update P08 body with correct P06b number
+          cat > /tmp/p08-final.md << BODYEOF
+## Context
+
+This phase implements the k9s-like interactive TUI using BubbleTea, as described in
+\`docs/architecture.md\` (D1, TUI section). The TUI shells out to CLI commands with \`--json\`
+and parses the stable JSON output from #${P06B} (P06b). It **MUST NOT** call internal engine
+or provider packages directly, and **MUST NOT** parse human-formatted output. This hard
+contract (D1) ensures CLI stability and scriptability.
+
+The TUI provides hotkeys for common operations including opening tmux sessions (hotkey \`T\`,
+calls P07a) and tcpdump live view (hotkey \`P\`, calls #${P07B} P07b CLI command). See
+[docs/architecture.md](docs/architecture.md) TUI, D1, and CLI contract sections.
+
+## Scope
+
+- Implement \`internal/tui/\` package using BubbleTea
+- Stack list view: calls \`nlab stack ls --json\`, displays stacks with status
+- VM list view: calls \`nlab vm ls --stack <stack> --json\`, shows VM states
+- Stack/VM operations via hotkeys: start, stop, restart (calls corresponding CLI)
+- Hotkey \`T\`: calls \`nlab stack tmux <stack>\` (#27 P07a)
+- Hotkey \`P\`: calls \`nlab stack tcpdump <stack>\` (#${P07B} P07b)
+- Error dialogs: display \`errors[]\` from JSON responses
+- \`nlab tui\` entrypoint
+
+## Non-goals
+
+- Applying manifests from TUI (manifests are CLI-only per architecture)
+- Direct engine/provider calls (must use CLI --json subprocess only)
+- Human output parsing (must use JSON only)
+
+## Blocked by
+
+- #${P06B} (P06b JSON output contract — required for stable TUI data contract)
+
+## Blocks
+
+- #19 (P10 Phase 10)
+
+## Acceptance Criteria
+
+- [ ] \`nlab tui\` launches interactive TUI using BubbleTea
+- [ ] Stack list view displays stacks from \`nlab stack ls --json\` output
+- [ ] Selecting a stack shows VM list from \`nlab vm ls --stack <stack> --json\`
+- [ ] Stack status is refreshed periodically or on hotkey
+- [ ] Hotkey operations (start/stop/restart) invoke corresponding CLI commands
+- [ ] Hotkey \`T\` launches \`nlab stack tmux <stack>\` for the selected stack
+- [ ] Hotkey \`P\` launches \`nlab stack tcpdump <stack>\` for the selected stack
+- [ ] Errors from CLI JSON \`errors[]\` array are displayed in a TUI error dialog
+- [ ] TUI does NOT import or call \`internal/engine\`, \`internal/provider\`, or any non-TUI internal package directly
+- [ ] TUI unit tests mock CLI subprocess calls (no real CLI binary required)
+- [ ] Tests pass in CI
+
+_See [docs/architecture.md](docs/architecture.md) D1 and TUI sections._
+BODYEOF
+
+          # Update P10 body with correct P06b/P07b numbers
+          cat > /tmp/p10-final.md << BODYEOF
+## Context
+
+This phase represents the continuous documentation effort and final polish for the nlab
+project, as described in \`docs/architecture.md\` (documentation section). While documentation
+is ongoing throughout all phases, this phase specifically tracks the "final polish" work:
+ensuring README and docs are canonical, complete, and accurate; providing example lab
+manifests; and documenting Ubuntu-specific caveats. It is the capstone phase unblocked only
+when all operational phases are complete.
+
+\`docs/architecture.md\` is the source of truth for the project design. This phase ensures it
+stays synchronized with the implementation. Example labs serve as both documentation and
+integration test fixtures.
+
+## Scope
+
+- Update README with install, \`nlab doctor\` usage, troubleshooting, and batteries-included quickstart
+- Update \`docs/install.md\` with Ubuntu-specific setup: libvirt, cloud-init tools, tcpdump privilege setup
+- Ensure \`docs/architecture.md\` reflects implemented behavior (sync with implementation)
+- Provide example \`stack.yaml\` files (under \`stacks/\` or \`docs/examples/\`)
+- Provide typical VM and network XML examples for Ubuntu cloud images
+- Provide example tmux layout specifications
+- Document Ubuntu-specific caveats: tcpdump privilege setup, guest agent, cloud-init
+
+## Non-goals
+
+- Writing code or implementing features (documentation only in this phase)
+- Remote libvirt documentation (local Ubuntu only)
+
+## Blocked by
+
+- #26 (P06a Phase 6a)
+- #${P06B} (P06b JSON output contract)
+- #27 (P07a Phase 7a)
+- #${P07B} (P07b tcpdump integration)
+- #28 (P08 Phase 8 TUI)
+- #29 (P09 Phase 9)
+
+## Blocks
+
+_Nothing — this is the capstone phase._
+
+## Acceptance Criteria
+
+- [ ] README covers: install, \`nlab doctor\`, quick-start (\`nlab apply -f examples/ubuntu-lab.yaml\`), troubleshooting
+- [ ] \`docs/install.md\` covers: Ubuntu prerequisites, libvirt setup, tcpdump privilege setup, cloud-init tools
+- [ ] \`docs/architecture.md\` is up-to-date and matches implemented CLI commands and JSON output kinds
+- [ ] At least one example \`stack.yaml\` exists, is valid per \`nlab validate\`, and is referenced from README
+- [ ] Example manifests include: Ubuntu cloud VM with cloud-init, network definition, tmux layout
+- [ ] Ubuntu-specific caveats (tcpdump, guest agent, cloud-init) are documented
+- [ ] All documentation is reviewed for accuracy against implementation
+
+_See [docs/architecture.md](docs/architecture.md) for the canonical architecture reference._
+BODYEOF
+
+          # --- Now update all existing issues ---
+          echo "Renaming and rewriting issue #20 (P00)..."
+          gh issue edit 20 \
+            --repo h3ow3d/nlab \
+            --title "P00 Phase 0: Pre-commit, Lint, and CI" \
+            --body-file /tmp/p00.md \
+            --add-label "phase/00-foundation"
+
+          echo "Renaming and rewriting issue #21 (P01)..."
+          gh issue edit 21 \
+            --repo h3ow3d/nlab \
+            --title "P01 Phase 1: Manifest Loader and Validator" \
+            --body-file /tmp/p01.md \
+            --add-label "phase/01-manifest"
+
+          echo "Renaming and rewriting issue #22 (P02)..."
+          gh issue edit 22 \
+            --repo h3ow3d/nlab \
+            --title "P02 Phase 2: Engine (Apply, Delete, Get)" \
+            --body-file /tmp/p02.md \
+            --add-label "phase/02-engine"
+
+          echo "Renaming and rewriting issue #23 (P03)..."
+          gh issue edit 23 \
+            --repo h3ow3d/nlab \
+            --title "P03 Phase 3: Provider Layer (libvirt Integration)" \
+            --body-file /tmp/p03.md \
+            --add-label "phase/03-provider"
+
+          echo "Renaming and rewriting issue #24 (P04)..."
+          gh issue edit 24 \
+            --repo h3ow3d/nlab \
+            --title "P04 Phase 4: Storage Manager (Images, Overlays, Purge)" \
+            --body-file /tmp/p04.md \
+            --add-label "phase/04-storage"
+
+          echo "Renaming and rewriting issue #25 (P05)..."
+          gh issue edit 25 \
+            --repo h3ow3d/nlab \
+            --title "P05 Phase 5: Cloud-init and Guest Agent Integration" \
+            --body-file /tmp/p05.md \
+            --add-label "phase/05-cloudinit"
+
+          echo "Renaming and rewriting issue #26 (P06a)..."
+          gh issue edit 26 \
+            --repo h3ow3d/nlab \
+            --title "P06a Phase 6a: Operational CLI (human UX + commands)" \
+            --body-file /tmp/p06a-final.md \
+            --add-label "phase/06-cli"
+
+          echo "Renaming and rewriting issue #27 (P07a)..."
+          gh issue edit 27 \
+            --repo h3ow3d/nlab \
+            --title "P07a Phase 7a: tmux integration (manifest-driven)" \
+            --body-file /tmp/p07a-final.md \
+            --add-label "phase/07-workflows"
+
+          echo "Renaming and rewriting issue #28 (P08)..."
+          gh issue edit 28 \
+            --repo h3ow3d/nlab \
+            --title "P08 Phase 8: TUI (BubbleTea-style, k9s-like)" \
+            --body-file /tmp/p08-final.md \
+            --add-label "phase/08-tui"
+
+          echo "Renaming and rewriting issue #29 (P09)..."
+          gh issue edit 29 \
+            --repo h3ow3d/nlab \
+            --title "P09 Phase 9: Logs and Observability" \
+            --body-file /tmp/p09.md \
+            --add-label "phase/09-observability"
+
+          echo "Renaming and rewriting issue #19 (P10)..."
+          gh issue edit 19 \
+            --repo h3ow3d/nlab \
+            --title "P10 Phase 10: Documentation and Example Labs" \
+            --body-file /tmp/p10-final.md \
+            --add-label "phase/10-docs"
+
+          echo ""
+          echo "=== Summary ==="
+          echo "Issues renamed: #20 (P00), #21 (P01), #22 (P02), #23 (P03), #24 (P04),"
+          echo "                #25 (P05), #26 (P06a), #27 (P07a), #28 (P08), #29 (P09), #19 (P10)"
+          echo "Issues bodies rewritten: all of the above"
+          echo "New issues created:"
+          echo "  - P06b: https://github.com/h3ow3d/nlab/issues/${P06B}"
+          echo "  - P07b: https://github.com/h3ow3d/nlab/issues/${P07B}"
+          echo "Labels created: phase/00-foundation through phase/10-docs"
+          echo "All issues labeled with their respective phase/* labels"
